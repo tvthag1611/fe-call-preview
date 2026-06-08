@@ -95,7 +95,7 @@ export function runningLabel(ev: CallEvent): string | null {
     case CallEventType.CallHold:
       return 'Đang giữ máy…'
     case CallEventType.CoordinationCalled:
-      return 'Đang điều phối với nhà xe…'
+      return 'Đang điều phối, chờ phản hồi…'
     case CallEventType.CallTransferInitiated:
       return 'Đang chuyển tiếp tới agent…'
     default:
@@ -111,9 +111,38 @@ export function learnOverride(ev: CallEvent): { chip: string; text: string; icon
     : { ...CAT_STYLE.ok, icon: 'circle-check' }
 }
 
-/** tool/coordination result là thất bại? (ok === false) */
+/** tool result là thất bại? (ok === false) */
 export function isResultFail(ev: CallEvent): boolean {
   return payloadOf(ev).ok === false
+}
+
+/** coordination.result thất bại = chưa có chuyên viên nào trả lời. */
+export function isCoordUnanswered(ev: CallEvent): boolean {
+  return payloadOf(ev).answered === false
+}
+
+/**
+ * Tách bỏ @mention ở đầu câu trả lời điều phối (vd "@Oanh Biva AI có em nhé")
+ * — chỉ giữ nội dung thật ("có em nhé"). Heuristic: bỏ '@' + tên người được nhắc
+ * (từ ngay sau '@' và các từ kế tiếp viết hoa), phần còn lại là câu trả lời.
+ */
+export function stripMention(text: string): string {
+  const t = (text ?? '').trim()
+  if (!t.startsWith('@')) return t
+  const words = t.slice(1).split(/\s+/)
+  let i = 0
+  while (i < words.length && (i === 0 || /^\p{Lu}/u.test(words[i]))) i++
+  const rest = words.slice(i).join(' ').trim()
+  return rest || words.join(' ').trim()
+}
+
+/** coordination.result: câu trả lời chốt đã bỏ @mention (ưu tiên `answer`, fallback answers[0]). */
+export function coordAnswer(ev: CallEvent): string {
+  const p = payloadOf(ev)
+  const raw =
+    (p.answer as string | undefined) ??
+    ((p.answers as Array<{ text?: string }> | undefined)?.[0]?.text ?? '')
+  return stripMention(raw)
 }
 
 /** Bỏ field null/undefined cho gọn (vd args save_booking_intent rất nhiều null). */

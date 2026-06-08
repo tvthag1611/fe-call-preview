@@ -139,22 +139,36 @@ export interface BotToolResultPayload {
 
 /** coordination.called */
 export interface CoordinationCalledPayload {
-  /** Bộ phận/đích điều phối tới. (suy đoán) */
-  target?: string
-  /** Lý do điều phối. (suy đoán) */
-  reason?: string
-  /** Dữ liệu kèm theo. (suy đoán) */
-  args?: Record<string, unknown>
+  /** ID phiên giữ máy/điều phối — khớp với coordination.result. (THẬT) */
+  holdId: string
+  /** Câu hỏi bot gửi đi điều phối (nhờ chuyên viên xác nhận). (THẬT) */
+  question: string
+}
+
+/** Một câu trả lời điều phối từ chuyên viên (vd nhắn trong nhóm Zalo). */
+export interface CoordinationAnswer {
+  /** ID tin trả lời. (THẬT) */
+  id: string
+  /** Nội dung trả lời — thường có @mention bot ở đầu. (THẬT) */
+  text: string
+  /** ID người gửi câu trả lời. (THẬT) */
+  senderPid: string
+  /** ISO timestamp khi trả lời. (THẬT) */
+  createdAt: string
+  /** Đã được thả reaction/đánh dấu chưa. (THẬT) */
+  reacted?: boolean
 }
 
 /** coordination.result */
 export interface CoordinationResultPayload {
-  /** Điều phối thành công hay không. (suy đoán) */
-  ok: boolean
-  /** Kết quả trả về. (suy đoán) */
-  result?: unknown
-  /** Lỗi khi ok=false. (suy đoán) */
-  error?: string
+  /** ID phiên — khớp với coordination.called. (THẬT) */
+  holdId: string
+  /** Đã có chuyên viên trả lời chưa. (THẬT) */
+  answered: boolean
+  /** Câu trả lời chốt (giữ nguyên @mention; FE tách phần @mention khi hiển thị). (THẬT) */
+  answer?: string
+  /** Toàn bộ các câu trả lời nhận được. (THẬT) */
+  answers?: CoordinationAnswer[]
 }
 
 /** call.hold */

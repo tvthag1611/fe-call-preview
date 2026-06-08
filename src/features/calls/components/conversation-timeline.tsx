@@ -6,7 +6,9 @@ import { SummaryCard } from './summary-card'
 import {
   CAT_STYLE,
   catStyle,
+  coordAnswer,
   endReasonLabel,
+  isCoordUnanswered,
   isResultFail,
   learnOverride,
   metaOf,
@@ -94,7 +96,7 @@ function ActionRow({ ev, time, running, prevAction, nextAction }: {
   const isLearn = ev.type === CallEventType.LearningChecked
   const fail =
     (isToolResult && isResultFail(ev)) ||
-    (isCoordResult && isResultFail(ev)) ||
+    (isCoordResult && isCoordUnanswered(ev)) ||
     ev.type === CallEventType.CallTransferFailed
   const learnOv = isLearn ? learnOverride(ev) : null
 
@@ -127,15 +129,19 @@ function ActionRow({ ev, time, running, prevAction, nextAction }: {
   } else {
     title = meta.label
     titleClass = fail ? CAT_STYLE.danger.text : catStyle(meta.cat).text
-    if (fail) overrideChip = CAT_STYLE.danger.chip
+    if (fail) {
+      overrideChip = CAT_STYLE.danger.chip
+      if (isCoordResult) overrideIcon = 'triangle-alert'
+    }
   }
 
+  // coordination.result hiển thị câu trả lời ngay ở dòng phụ (xem `sub`), không cần JSON box.
   let detailVal: unknown = null
   if (isToolCall) detailVal = toolCallDetail(ev)
   else if (isToolResult) detailVal = toolResultDetail(ev)
-  else if (isCoordResult) detailVal = fail ? { loi: p.error } : { ket_qua: p.result }
 
   // Dòng phụ: tool_called dùng `note` (mô tả bot ghi nhận), tool_result dùng tóm tắt,
+  // coordination.called hiện câu hỏi, coordination.result hiện câu trả lời (đã bỏ @mention),
   // call.ended dịch `reason`, còn lại lấy reason/note/text.
   const sub = isToolCall
     ? ((p.args as Record<string, unknown> | undefined)?.note as string) ?? ''
@@ -143,9 +149,15 @@ function ActionRow({ ev, time, running, prevAction, nextAction }: {
       ? fail
         ? (p.error as string) ?? ''
         : resultNote(ev)
-      : ev.type === CallEventType.CallEnded
-        ? endReasonLabel(p.reason)
-        : (p.reason as string) || (p.note as string) || (p.text as string) || ''
+      : ev.type === CallEventType.CoordinationCalled
+        ? (p.question as string) ?? ''
+        : isCoordResult
+          ? fail
+            ? 'Chưa nhận được phản hồi điều phối'
+            : coordAnswer(ev)
+          : ev.type === CallEventType.CallEnded
+            ? endReasonLabel(p.reason)
+            : (p.reason as string) || (p.note as string) || (p.text as string) || ''
 
   // Sự kiện nhiều thông tin (có JSON detail) → cho phép thu gọn khi đã diễn ra xong.
   // Đang chạy thì luôn mở để theo dõi; xong rồi thì mặc định gập, bấm để mở lại.
