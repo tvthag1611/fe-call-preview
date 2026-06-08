@@ -1,4 +1,4 @@
-import { createRootRouteWithContext, Link, Outlet } from '@tanstack/react-router'
+import { createRootRouteWithContext, Link, Outlet, useRouterState } from '@tanstack/react-router'
 import type { QueryClient } from '@tanstack/react-query'
 import { useQuery } from '@tanstack/react-query'
 import { Icon } from '@/components/biva/icon'
@@ -9,8 +9,28 @@ import { useGlobalStream } from '@/features/calls/api/use-global-stream'
 import { learningQuery } from '@/features/learn/api'
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  component: AppShell,
+  component: RootLayout,
 })
+
+/**
+ * Các route render độc lập (không có sidebar app) — vd trang chia sẻ /teach/:id
+ * dành cho người ngoài không có tài khoản.
+ */
+function isStandaloneRoute(pathname: string) {
+  return pathname.startsWith('/teach')
+}
+
+function RootLayout() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  if (isStandaloneRoute(pathname)) {
+    return (
+      <div className="h-screen overflow-hidden bg-background">
+        <Outlet />
+      </div>
+    )
+  }
+  return <AppShell />
+}
 
 const NAV = [
   { to: '/', label: 'Inbound', icon: 'phone-incoming' },
@@ -46,7 +66,8 @@ function AppShell() {
   const { data: calls = [] } = useQuery(conversationsQuery())
   const { data: learn = [] } = useQuery(learningQuery())
   const liveCount = calls.filter((c) => c.status === 'live').length
-  const learnPending = learn.filter((l) => l.status !== 'taught').length
+  // chỉ đếm phiếu còn cần xử lý — đã dạy & "không cần dạy" (dismissed) coi như xong
+  const learnPending = learn.filter((l) => l.status === 'open' || l.status === 'review').length
 
   return (
     <div className="grid h-screen grid-cols-[232px_1fr] overflow-hidden bg-background">

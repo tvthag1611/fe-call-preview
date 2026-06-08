@@ -22,7 +22,11 @@ function LearnListPage() {
   const [filter, setFilter] = useState<'all' | 'open' | 'taught'>('all')
 
   const rows = items.filter((l) =>
-    filter === 'all' ? true : filter === 'open' ? l.status !== 'taught' : l.status === 'taught',
+    filter === 'all'
+      ? true
+      : filter === 'open'
+        ? l.status === 'open' || l.status === 'review'
+        : l.status === 'taught',
   )
 
   return (

@@ -26,3 +26,8 @@ export interface TeachBody {
 export function teachLearningItem(id: string, body: TeachBody) {
   return apiClient.post<LearningItem>(`/learning/${id}/teach`, body)
 }
+
+/** Không cần dạy: đóng phiếu mà bot không cần học → trạng thái dismissed. */
+export function dismissLearningItem(id: string) {
+  return apiClient.post<LearningItem>(`/learning/${id}/dismiss`)
+}

@@ -8,6 +8,7 @@ export const LEARN_STATUS: Record<LearningItem['status'], { label: string; cls: 
   open: { label: 'Cần xử lý', cls: 'text-orange-700 bg-orange-50 border-orange-200' },
   review: { label: 'Đang duyệt', cls: 'text-yellow-700 bg-yellow-50 border-yellow-300' },
   taught: { label: 'Đã dạy', cls: 'text-green-600 bg-green-50 border-green-200' },
+  dismissed: { label: 'Không cần học', cls: 'text-muted-foreground bg-muted border-border' },
 }
 export const KIND_META: Record<LearningItem['kind'], { label: string; icon: string }> = {
   knowledge: { label: 'Thiếu tri thức', icon: 'book-open' },

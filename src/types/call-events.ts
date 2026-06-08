@@ -316,7 +316,8 @@ export interface Conversation {
 export interface LearningItem {
   id: string
   kind: 'knowledge' | 'intent'
-  status: 'open' | 'review' | 'taught'
+  /** dismissed = đã đóng phiếu mà bot không cần học (nút "Không cần dạy"). */
+  status: 'open' | 'review' | 'taught' | 'dismissed'
   title: string
   question: string
   conversationId: string
