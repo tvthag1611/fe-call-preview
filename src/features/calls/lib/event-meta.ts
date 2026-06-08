@@ -116,6 +116,71 @@ export function isResultFail(ev: CallEvent): boolean {
   return payloadOf(ev).ok === false
 }
 
+/** Bỏ field null/undefined cho gọn (vd args save_booking_intent rất nhiều null). */
+function pruneEmpty(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (v === null || v === undefined || v === '') continue
+    out[k] = v
+  }
+  return out
+}
+
+/** Một số tool trả `result` là CHUỖI JSON — parse ra object để hiển thị đẹp. */
+function parseMaybeJson(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  const s = value.trim()
+  if (!s.startsWith('{') && !s.startsWith('[')) return value
+  try {
+    return JSON.parse(s)
+  } catch {
+    return value
+  }
+}
+
+/** Chi tiết JSON cho bot.tool_called — chỉ giữ args có giá trị. */
+export function toolCallDetail(ev: CallEvent): unknown {
+  const args = payloadOf(ev).args
+  return pruneEmpty(args) ?? {}
+}
+
+/** Chi tiết JSON cho bot.tool_result — chuẩn hoá nhiều dạng payload thật. */
+export function toolResultDetail(ev: CallEvent): unknown {
+  const p = payloadOf(ev)
+  if (p.ok === false) return { loi: p.error ?? 'Thất bại' }
+  if (p.result !== undefined) return parseMaybeJson(p.result)
+  // Không có `result` riêng → hiển thị các field còn lại (count, saved, ready, fields…)
+  const rest = pruneEmpty(p) as Record<string, unknown>
+  delete rest.name
+  delete rest.ok
+  return Object.keys(rest).length ? rest : { ok: true }
+}
+
+/** Dòng phụ ngắn gọn cho bot.tool_result (đếm kết quả / trạng thái lưu). */
+export function resultNote(ev: CallEvent): string {
+  const p = payloadOf(ev)
+  if (p.ok === false) return ''
+  if (typeof p.count === 'number') return `${p.count} kết quả`
+  if (p.ready === true) return 'Đã đủ thông tin, sẵn sàng đặt'
+  if (p.saved === true) return 'Đã lưu thông tin'
+  return ''
+}
+
+/** Lý do kết thúc cuộc gọi → nhãn tiếng Việt. */
+const END_REASON: Record<string, string> = {
+  client_closed: 'Khách kết thúc',
+  customer_closed: 'Khách kết thúc',
+  bot_closed: 'Bot kết thúc',
+  agent_closed: 'Agent kết thúc',
+  timeout: 'Hết thời gian chờ',
+  hangup: 'Máy dập',
+}
+export function endReasonLabel(reason: unknown): string {
+  if (typeof reason !== 'string') return ''
+  return END_REASON[reason] ?? reason
+}
+
 /** Thời điểm tương đối "m:ss" của event thứ i so với event đầu. */
 export function relTime(events: CallEvent[], i: number): string {
   if (!events.length) return '0:00'

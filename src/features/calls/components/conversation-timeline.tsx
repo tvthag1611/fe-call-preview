@@ -6,12 +6,16 @@ import { SummaryCard } from './summary-card'
 import {
   CAT_STYLE,
   catStyle,
+  endReasonLabel,
   isResultFail,
   learnOverride,
   metaOf,
   payloadOf,
   relTime,
+  resultNote,
   runningLabel,
+  toolCallDetail,
+  toolResultDetail,
 } from '../lib/event-meta'
 import { CallEventType, type CallEvent, type Conversation } from '@/types/call-events'
 
@@ -23,9 +27,7 @@ function isActionType(t: string) {
 }
 
 /* ---------- bong bóng lời nói (bot trái / khách phải) ---------- */
-function ChatBubble({ ev, time }: { ev: CallEvent; time: string }) {
-  const isBot = ev.type === CallEventType.BotUtterance
-  const text = (payloadOf(ev).text as string) ?? ''
+function ChatBubble({ isBot, text, time }: { isBot: boolean; text: string; time: string }) {
   return (
     <div className={cn('mb-2.5 flex animate-in fade-in slide-in-from-bottom-1 duration-300', isBot ? 'justify-start' : 'justify-end')}>
       <div
@@ -129,15 +131,26 @@ function ActionRow({ ev, time, running, prevAction, nextAction }: {
   }
 
   let detailVal: unknown = null
-  if (isToolCall) detailVal = p.args ?? {}
-  else if (isToolResult || isCoordResult) detailVal = fail ? { loi: p.error } : { ket_qua: p.result }
+  if (isToolCall) detailVal = toolCallDetail(ev)
+  else if (isToolResult) detailVal = toolResultDetail(ev)
+  else if (isCoordResult) detailVal = fail ? { loi: p.error } : { ket_qua: p.result }
 
-  const sub = !isToolCall && !isToolResult ? (p.reason as string) || (p.note as string) || (p.text as string) || '' : ''
+  // Dòng phụ: tool_called dùng `note` (mô tả bot ghi nhận), tool_result dùng tóm tắt,
+  // call.ended dịch `reason`, còn lại lấy reason/note/text.
+  const sub = isToolCall
+    ? ((p.args as Record<string, unknown> | undefined)?.note as string) ?? ''
+    : isToolResult
+      ? fail
+        ? (p.error as string) ?? ''
+        : resultNote(ev)
+      : ev.type === CallEventType.CallEnded
+        ? endReasonLabel(p.reason)
+        : (p.reason as string) || (p.note as string) || (p.text as string) || ''
 
   // Sự kiện nhiều thông tin (có JSON detail) → cho phép thu gọn khi đã diễn ra xong.
   // Đang chạy thì luôn mở để theo dõi; xong rồi thì mặc định gập, bấm để mở lại.
   const collapsible = detailVal != null && !running
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(true)
   const showDetail = detailVal != null && (running || open)
 
   return (
@@ -194,19 +207,42 @@ export function ConversationTimeline({ call, events, runningIndex }: {
     if (el) el.scrollTop = el.scrollHeight
   }, [events.length])
 
-  // bot.thinking chỉ có nghĩa lúc đang diễn ra → khi đã xong thì ẩn hẳn,
-  // chỉ giữ lại đúng event đang chạy. Lọc trước để rail nối & thời gian tương đối
-  // tính trên danh sách hiển thị thật.
-  const visible = events
-    .map((ev, i) => ({ ev, i }))
-    .filter(({ ev, i }) => ev.type !== CallEventType.BotThinking || i === runningIndex)
+  // Dựng danh sách node hiển thị:
+  //  • bot.thinking đã xong → ẩn hẳn (chỉ giữ event đang chạy).
+  //  • Lời nói liên tiếp cùng một bên (bot.utterance mode "append" / mảnh ASR của khách)
+  //    → gộp thành MỘT bong bóng đọc liền mạch.
+  type SpeechNode = { kind: 'speech'; isBot: boolean; text: string; i: number; key: string }
+  type EventNode = { kind: 'event'; ev: CallEvent; i: number }
+  const nodes: Array<SpeechNode | EventNode> = []
+  events.forEach((ev, i) => {
+    if (ev.type === CallEventType.BotThinking && i !== runningIndex) return
+    if (isSpeechType(ev.type)) {
+      const isBot = ev.type === CallEventType.BotUtterance
+      const text = ((payloadOf(ev).text as string) ?? '').trim()
+      if (!text) return
+      const prev = nodes[nodes.length - 1]
+      if (prev && prev.kind === 'speech' && prev.isBot === isBot) {
+        prev.text = prev.text ? `${prev.text} ${text}` : text
+      } else {
+        nodes.push({ kind: 'speech', isBot, text, i, key: ev.id })
+      }
+      return
+    }
+    nodes.push({ kind: 'event', ev, i })
+  })
+
+  const isActionNode = (n: SpeechNode | EventNode | undefined) =>
+    !!n && n.kind === 'event' && isActionType(n.ev.type)
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-5">
         <div className="mx-auto flex max-w-[780px] flex-col">
-          {visible.map(({ ev, i }, vi) => {
-            if (isSpeechType(ev.type)) return <ChatBubble key={ev.id} ev={ev} time={relTime(events, i)} />
+          {nodes.map((n, ni) => {
+            if (n.kind === 'speech') {
+              return <ChatBubble key={n.key} isBot={n.isBot} text={n.text} time={relTime(events, n.i)} />
+            }
+            const { ev, i } = n
             if (ev.type === CallEventType.CallSummary) {
               return (
                 <div key={ev.id} className="my-1.5 mb-3.5">
@@ -220,8 +256,8 @@ export function ConversationTimeline({ call, events, runningIndex }: {
                 ev={ev}
                 time={relTime(events, i)}
                 running={i === runningIndex}
-                prevAction={vi > 0 && isActionType(visible[vi - 1].ev.type)}
-                nextAction={vi < visible.length - 1 && isActionType(visible[vi + 1].ev.type)}
+                prevAction={isActionNode(nodes[ni - 1])}
+                nextAction={isActionNode(nodes[ni + 1])}
               />
             )
           })}
