@@ -31,6 +31,9 @@ export function useCallStream(
 
     fetchEventSource(`${API_BASE_URL}/conversations/${conversationId}/stream`, {
       signal: controller.signal,
+      // Giữ kết nối khi tab bị ẩn (mặc định thư viện sẽ đóng) để không lỡ event
+      // realtime lúc người dùng chuyển cửa sổ.
+      openWhenHidden: true,
       // headers: { Authorization: `Bearer ${token}` }, // gắn token khi có auth
       onopen: async () => {
         setStatus('open')
