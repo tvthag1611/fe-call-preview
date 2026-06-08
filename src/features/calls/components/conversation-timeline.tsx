@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Icon } from '@/components/biva/icon'
 import { cn } from '@/lib/utils'
 import { EventChip } from './event-chip'
@@ -134,6 +134,12 @@ function ActionRow({ ev, time, running, prevAction, nextAction }: {
 
   const sub = !isToolCall && !isToolResult ? (p.reason as string) || (p.note as string) || (p.text as string) || '' : ''
 
+  // Sự kiện nhiều thông tin (có JSON detail) → cho phép thu gọn khi đã diễn ra xong.
+  // Đang chạy thì luôn mở để theo dõi; xong rồi thì mặc định gập, bấm để mở lại.
+  const collapsible = detailVal != null && !running
+  const [open, setOpen] = useState(false)
+  const showDetail = detailVal != null && (running || open)
+
   return (
     <div className="grid animate-in fade-in slide-in-from-bottom-1 grid-cols-[34px_1fr] gap-x-3 duration-300">
       <div className="flex flex-col items-center">
@@ -143,17 +149,34 @@ function ActionRow({ ev, time, running, prevAction, nextAction }: {
       </div>
       <div className={cn('min-w-0 pt-1.5', nextAction ? 'pb-3.5' : 'pb-[18px]')}>
         <div className="flex flex-wrap items-baseline gap-2">
-          <span className={cn('text-[13.5px] font-semibold leading-tight', mono ? 'font-mono' : 'tracking-tight', titleClass)}>{title}</span>
+          {collapsible ? (
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              className="group inline-flex items-center gap-1.5 text-left"
+              aria-expanded={open}
+              title={open ? 'Thu gọn' : 'Xem chi tiết'}
+            >
+              <Icon
+                name="chevron-right"
+                size={14}
+                className={cn('text-muted-foreground transition-transform group-hover:text-foreground', open && 'rotate-90')}
+              />
+              <span className={cn('text-[13.5px] font-semibold leading-tight', mono ? 'font-mono' : 'tracking-tight', titleClass)}>{title}</span>
+            </button>
+          ) : (
+            <span className={cn('text-[13.5px] font-semibold leading-tight', mono ? 'font-mono' : 'tracking-tight', titleClass)}>{title}</span>
+          )}
           <span className="text-xs text-muted-foreground">· {time}</span>
         </div>
         {sub && <div className="mt-0.5 text-[13px] leading-relaxed text-muted-foreground">{sub}</div>}
         {isLearn && !!p.needs && (
           <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700">
             <Icon name="graduation-cap" size={13} /> {p.ticketId ? `Phiếu ${p.ticketId as string} · ` : ''}
-            {(p.topic as string) ?? ''}
+            {(p.title as string) ?? ''}
           </div>
         )}
-        {detailVal != null && <JsonBlock value={detailVal} />}
+        {showDetail && <JsonBlock value={detailVal} />}
       </div>
     </div>
   )
@@ -171,11 +194,18 @@ export function ConversationTimeline({ call, events, runningIndex }: {
     if (el) el.scrollTop = el.scrollHeight
   }, [events.length])
 
+  // bot.thinking chỉ có nghĩa lúc đang diễn ra → khi đã xong thì ẩn hẳn,
+  // chỉ giữ lại đúng event đang chạy. Lọc trước để rail nối & thời gian tương đối
+  // tính trên danh sách hiển thị thật.
+  const visible = events
+    .map((ev, i) => ({ ev, i }))
+    .filter(({ ev, i }) => ev.type !== CallEventType.BotThinking || i === runningIndex)
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-5">
         <div className="mx-auto flex max-w-[780px] flex-col">
-          {events.map((ev, i) => {
+          {visible.map(({ ev, i }, vi) => {
             if (isSpeechType(ev.type)) return <ChatBubble key={ev.id} ev={ev} time={relTime(events, i)} />
             if (ev.type === CallEventType.CallSummary) {
               return (
@@ -190,8 +220,8 @@ export function ConversationTimeline({ call, events, runningIndex }: {
                 ev={ev}
                 time={relTime(events, i)}
                 running={i === runningIndex}
-                prevAction={i > 0 && isActionType(events[i - 1].type)}
-                nextAction={i < events.length - 1 && isActionType(events[i + 1].type)}
+                prevAction={vi > 0 && isActionType(visible[vi - 1].ev.type)}
+                nextAction={vi < visible.length - 1 && isActionType(visible[vi + 1].ev.type)}
               />
             )
           })}

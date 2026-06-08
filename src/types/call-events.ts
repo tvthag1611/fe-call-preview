@@ -230,18 +230,27 @@ export interface CallSummaryPayload {
 }
 
 /**
- * learning.checked — phân tích SAU khi kết thúc cuộc gọi: bot có cần học không.
- * Nếu cần, hệ thống sinh phiếu học (ticketId).
+ * learning.checked — kết luận SAU khi kết thúc cuộc gọi: bot có cần học không.
+ * Payload CHÍNH LÀ nội dung phiếu học: khi needs=true, phiếu được dựng trực tiếp
+ * từ các field dưới đây (BE không bịa thêm). needs=false thì bỏ qua, không tạo phiếu.
  */
 export interface LearningCheckedPayload {
-  /** Có cần học thêm từ cuộc gọi này không. (suy đoán) */
+  /** Có cần học không. Chỉ khi true mới sinh phiếu học. */
   needs: boolean
-  /** Mã phiếu học khi needs=true. (suy đoán) */
+  /** Mã phiếu học. Thiếu thì BE tự sinh "L-xxxxxx". */
   ticketId?: string
-  /** Chủ đề cần học. (suy đoán) */
-  topic?: string
-  /** Mô tả phân tích. (suy đoán) */
-  text?: string
+  /** Loại thiếu sót: 'knowledge' (thiếu tri thức) | 'intent' (thiếu ý định). Mặc định 'knowledge'. */
+  kind?: 'knowledge' | 'intent'
+  /** Tiêu đề / chủ đề phiếu học. */
+  title?: string
+  /** Câu khách đã hỏi khiến bot bí. */
+  question?: string
+  /** Phân tích / ghi chú vì sao cần học. */
+  note?: string
+  /** Câu trả lời gợi ý sẵn (nếu có); để trống cho chuyên viên điền khi dạy. */
+  answer?: string
+  /** Số lần gặp tình huống này. Mặc định 1. */
+  count?: number
 }
 
 /** Map loại event -> kiểu payload tương ứng. */
