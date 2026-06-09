@@ -58,12 +58,14 @@ export function TeachView({
   const [result, setResult] = useState<Result>(initialResult(item.status))
   const [submitting, setSubmitting] = useState(false)
   const [dismissing, setDismissing] = useState(false)
-  const link = `biva.ai/teach/${item.id.toLowerCase()}`
+  // Link dạy theo đúng domain đang chạy (dev/staging/prod), không hardcode.
+  const teachUrl = `${window.location.origin}/teach/${item.id.toLowerCase()}`
+  const linkLabel = teachUrl.replace(/^https?:\/\//, '')
   const isPublic = variant === 'public'
 
   const copy = () => {
     try {
-      void navigator.clipboard?.writeText('https://' + link)
+      void navigator.clipboard?.writeText(teachUrl)
     } catch {
       /* ignore */
     }
@@ -120,7 +122,7 @@ export function TeachView({
               <div className="text-xs opacity-75">Ai có link này đều có thể bổ sung câu trả lời chuẩn — không cần tài khoản.</div>
             </div>
             <div className="flex items-center gap-2 rounded-lg bg-primary-foreground/10 py-1.5 pr-1.5 pl-3">
-              <code className="font-mono text-[13px]">{link}</code>
+              <code className="font-mono text-[13px]">{linkLabel}</code>
               <button
                 onClick={copy}
                 className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary-foreground px-2.5 py-1.5 text-xs font-semibold text-primary"
