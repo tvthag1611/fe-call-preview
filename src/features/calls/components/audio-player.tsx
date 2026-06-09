@@ -1,11 +1,19 @@
-import { useRef } from 'react'
+import { useRef, type RefObject } from 'react'
 import { Icon } from '@/components/biva/icon'
 import { cn } from '@/lib/utils'
 import { fmtDuration } from '../lib/format'
 import type { AudioControls } from '../lib/use-audio-playback'
 
-/** Trình phát ghi âm: đầu phát kéo tua được, transcript bám theo. */
-export function AudioPlayer({ controls, audioUrl }: { controls: AudioControls; audioUrl?: string }) {
+/** Trình phát ghi âm: phát file thật (khi có audioUrl), đầu phát kéo tua được, transcript bám theo. */
+export function AudioPlayer({
+  controls,
+  audioUrl,
+  audioRef,
+}: {
+  controls: AudioControls
+  audioUrl?: string
+  audioRef?: RefObject<HTMLAudioElement | null>
+}) {
   const { t, total, playing, rate } = controls
   const barRef = useRef<HTMLDivElement>(null)
   const pct = total ? Math.max(0, Math.min(100, (t / total) * 100)) : 0
@@ -31,6 +39,7 @@ export function AudioPlayer({ controls, audioUrl }: { controls: AudioControls; a
 
   return (
     <div className="flex w-full items-center gap-4">
+      {audioUrl && <audio ref={audioRef} src={audioUrl} preload="metadata" className="hidden" />}
       <button
         onClick={controls.toggle}
         title={playing ? 'Tạm dừng' : 'Phát ghi âm'}

@@ -63,7 +63,11 @@ export function CallDetail({ conversationId, onClose, onOpenLearn }: {
             ),
           )
         : 0
-  const { count, controls } = useAudioPlayback(stored, duration)
+  const { count, controls, audioRef } = useAudioPlayback(
+    stored,
+    duration,
+    call?.summary?.audio ?? undefined,
+  )
 
   const events: CallEvent[] = isLive ? liveEvents : stored.slice(0, count)
 
@@ -154,7 +158,7 @@ export function CallDetail({ conversationId, onClose, onOpenLearn }: {
             <span className="ml-auto font-mono text-sm font-semibold">{elapsed}</span>
           </div>
         ) : (
-          <AudioPlayer controls={controls} audioUrl={audioUrl} />
+          <AudioPlayer controls={controls} audioUrl={audioUrl} audioRef={audioRef} />
         )}
       </div>
     </div>

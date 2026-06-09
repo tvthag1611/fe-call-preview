@@ -15,12 +15,23 @@ export interface AudioControls {
 /**
  * Mô hình trình phát ghi âm: đầu phát `t` (giây) chạy theo thời gian thực; transcript
  * lộ dần các event có mốc thời gian ≤ t. Kéo tua được. `total` = thời lượng cuộc gọi.
+ *
+ * Khi có `audioUrl`: phát FILE GHI ÂM THẬT — `t`, play/pause, tua, tốc độ đều bám theo
+ * thẻ `<audio>` (gắn ở AudioPlayer qua `audioRef`). Không có URL thì mô phỏng bằng rAF.
  */
-export function useAudioPlayback(events: CallEvent[], durationSec: number) {
-  const total = durationSec || 0
+export function useAudioPlayback(
+  events: CallEvent[],
+  durationSec: number,
+  audioUrl?: string,
+) {
+  const audioRef = useRef<HTMLAudioElement>(null)
+  const [audioDur, setAudioDur] = useState(0)
+  // Thời lượng: ưu tiên độ dài thật của file ghi âm khi đã nạp được metadata.
+  const total = (audioUrl && audioDur > 0 ? audioDur : durationSec) || 0
+
   const [t, setT] = useState(0)
   const [playing, setPlaying] = useState(false)
-  const [rate, setRate] = useState(1)
+  const [rate, setRateState] = useState(1)
   const raf = useRef(0)
   const prev = useRef(0)
 
@@ -29,20 +40,60 @@ export function useAudioPlayback(events: CallEvent[], durationSec: number) {
   useEffect(() => {
     setT(total)
     setPlaying(false)
+    const a = audioRef.current
+    if (a) {
+      a.pause()
+      a.currentTime = 0
+    }
   }, [events, total])
 
+  // Đồng bộ với thẻ <audio> thật: đọc thời lượng, dừng khi hết file.
+  useEffect(() => {
+    const a = audioRef.current
+    if (!a || !audioUrl) return
+    const onMeta = () => {
+      if (Number.isFinite(a.duration) && a.duration > 0) setAudioDur(a.duration)
+    }
+    const onEnded = () => {
+      setPlaying(false)
+      setT(a.duration || 0)
+    }
+    a.playbackRate = rate
+    a.addEventListener('loadedmetadata', onMeta)
+    a.addEventListener('ended', onEnded)
+    onMeta()
+    return () => {
+      a.removeEventListener('loadedmetadata', onMeta)
+      a.removeEventListener('ended', onEnded)
+    }
+  }, [audioUrl, rate])
+
+  // Phát/dừng thẻ <audio> theo state `playing`.
+  useEffect(() => {
+    const a = audioRef.current
+    if (!a || !audioUrl) return
+    if (playing) void a.play().catch(() => setPlaying(false))
+    else a.pause()
+  }, [playing, audioUrl])
+
+  // Vòng lặp cập nhật đầu phát: bám currentTime của file thật, hoặc cộng dồn khi mô phỏng.
   useEffect(() => {
     if (!playing) return
     prev.current = performance.now()
     const tick = (now: number) => {
-      const dt = (now - prev.current) / 1000
+      const a = audioRef.current
+      if (audioUrl && a) {
+        setT(a.currentTime)
+      } else {
+        const dt = (now - prev.current) / 1000
+        setT((x) => Math.min(total, x + dt * rate))
+      }
       prev.current = now
-      setT((x) => Math.min(total, x + dt * rate))
       raf.current = requestAnimationFrame(tick)
     }
     raf.current = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf.current)
-  }, [playing, rate, total])
+  }, [playing, rate, total, audioUrl])
 
   useEffect(() => {
     if (playing && total > 0 && t >= total) setPlaying(false)
@@ -60,12 +111,22 @@ export function useAudioPlayback(events: CallEvent[], durationSec: number) {
       setPlaying((p) => {
         if (!p && t >= total) {
           setT(0)
-          return true
+          const a = audioRef.current
+          if (a) a.currentTime = 0
         }
         return !p
       }),
-    seek: (v) => setT(Math.max(0, Math.min(total, v))),
-    setRate,
+    seek: (v) => {
+      const nv = Math.max(0, Math.min(total, v))
+      setT(nv)
+      const a = audioRef.current
+      if (a) a.currentTime = nv
+    },
+    setRate: (r) => {
+      setRateState(r)
+      const a = audioRef.current
+      if (a) a.playbackRate = r
+    },
   }
-  return { count, controls }
+  return { count, controls, audioRef }
 }

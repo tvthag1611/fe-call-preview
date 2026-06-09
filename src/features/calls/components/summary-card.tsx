@@ -18,12 +18,44 @@ function Meta({ icon, children, mono }: { icon: string; children: ReactNode; mon
   )
 }
 
+/** Field "khối": value nhiều dòng / dạng gạch đầu dòng (vd field "Tóm tắt" tự sinh). */
+function isBlockField(value: string): boolean {
+  return value.includes('\n') || /^\s*[-•*]\s/.test(value)
+}
+
+/** Tách value nhiều dòng thành các ý, bỏ ký tự gạch đầu dòng. */
+function bulletLines(value: string): string[] {
+  return value
+    .split('\n')
+    .map((l) => l.replace(/^\s*[-•*]\s*/, '').trim())
+    .filter(Boolean)
+}
+
+/** Một ý: nếu có "Nhãn: nội dung" thì in đậm phần nhãn. */
+function BulletItem({ line }: { line: string }) {
+  const ci = line.indexOf(':')
+  const hasKey = ci > 0 && ci <= 40
+  const key = hasKey ? line.slice(0, ci).trim() : ''
+  const val = hasKey ? line.slice(ci + 1).trim() : line
+  return (
+    <li className="flex gap-2 text-[13px] leading-relaxed">
+      <span className="mt-[7px] size-1 shrink-0 rounded-full bg-muted-foreground/50" />
+      <span className="text-foreground">
+        {hasKey && <b className="font-semibold">{key}: </b>}
+        {val}
+      </span>
+    </li>
+  )
+}
+
 /** Thẻ tóm tắt hậu cuộc gọi — đúng format thật của Biva. */
 export function SummaryCard({ call, compact }: { call: Conversation; compact?: boolean }) {
   const s = call.summary
   if (!s) return null
   const t = TONE[s.tone] ?? TONE.good
   const fields = s.fields ?? []
+  const shortFields = fields.filter((f) => !isBlockField(f.value))
+  const blockFields = fields.filter((f) => isBlockField(f.value))
   return (
     <div className={cn('animate-in fade-in slide-in-from-bottom-1 self-center overflow-hidden rounded-xl border bg-card shadow-sm duration-300', compact ? 'w-full' : 'w-[min(640px,96%)]')}>
       {/* banner trạng thái */}
@@ -60,17 +92,36 @@ export function SummaryCard({ call, compact }: { call: Conversation; compact?: b
 
       {/* bảng field */}
       <div className="p-4">
-        <div className="grid grid-cols-2 gap-x-6">
-          {fields.map((f, i) => {
-            const lastTwo = i >= fields.length - (fields.length % 2 === 0 ? 2 : 1)
-            return (
-              <div key={i} className={cn('flex gap-2.5 py-1.5', !lastTwo && 'border-b')}>
-                <span className="w-[116px] shrink-0 text-xs text-muted-foreground">{f.label}</span>
-                <span className="text-[13px] font-semibold text-foreground">{f.value}</span>
+        {/* field ngắn (nhãn · giá trị) → bảng 2 cột */}
+        {shortFields.length > 0 && (
+          <div className="grid grid-cols-2 gap-x-6">
+            {shortFields.map((f, i) => {
+              const lastTwo = i >= shortFields.length - (shortFields.length % 2 === 0 ? 2 : 1)
+              return (
+                <div key={i} className={cn('flex gap-2.5 py-1.5', !lastTwo && 'border-b')}>
+                  <span className="w-[116px] shrink-0 text-xs text-muted-foreground">{f.label}</span>
+                  <span className="text-[13px] font-semibold text-foreground">{f.value}</span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* field "khối" (vd Tóm tắt) → danh sách gạch đầu dòng đầy đủ chiều ngang */}
+        {blockFields.map((f, i) => (
+          <div key={i} className={cn((shortFields.length > 0 || i > 0) && 'mt-3.5 border-t pt-3.5')}>
+            {f.label && (
+              <div className="mb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                {f.label}
               </div>
-            )
-          })}
-        </div>
+            )}
+            <ul className="space-y-1.5">
+              {bulletLines(f.value).map((line, j) => (
+                <BulletItem key={j} line={line} />
+              ))}
+            </ul>
+          </div>
+        ))}
 
         {s.tags && s.tags.length > 0 && (
           <div className="mt-3.5 flex flex-wrap gap-1.5">

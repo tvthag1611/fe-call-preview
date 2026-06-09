@@ -204,6 +204,13 @@ const END_REASON: Record<string, string> = {
   agent_closed: 'Agent kết thúc',
   timeout: 'Hết thời gian chờ',
   hangup: 'Máy dập',
+  // Mã hangup_cause của nền tảng gọi (từ webhook tóm tắt).
+  NORMAL_CLEARING: 'Kết thúc bình thường',
+  USER_BUSY: 'Máy bận',
+  NO_ANSWER: 'Không trả lời',
+  NO_USER_RESPONSE: 'Không phản hồi',
+  ORIGINATOR_CANCEL: 'Người gọi huỷ',
+  CALL_REJECTED: 'Bị từ chối',
 }
 export function endReasonLabel(reason: unknown): string {
   if (typeof reason !== 'string') return ''
