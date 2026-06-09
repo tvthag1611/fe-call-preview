@@ -23,9 +23,22 @@ function isWide(value: string): boolean {
   return value.includes('\n') || value.length > 44
 }
 
-/** Thẻ tóm tắt hậu cuộc gọi — đúng format thật của Biva. */
-export function SummaryCard({ call, compact }: { call: Conversation; compact?: boolean }) {
-  const s = call.summary
+/**
+ * Thẻ tóm tắt hậu cuộc gọi — đúng format thật của Biva.
+ * `summary` (payload của event call.summary) là NGUỒN ƯU TIÊN — đảm bảo card hiện đúng
+ * dữ liệu của chính event, không lệ thuộc vào bản tổng hợp `call.summary` (có thể trống
+ * nếu aggregate chưa kịp cập nhật). Thiếu thì fallback về `call.summary`.
+ */
+export function SummaryCard({
+  call,
+  compact,
+  summary,
+}: {
+  call: Conversation
+  compact?: boolean
+  summary?: CallSummaryPayload | null
+}) {
+  const s = summary ?? call.summary
   if (!s) return null
   const t = TONE[s.tone] ?? TONE.good
   const fields = s.fields ?? []

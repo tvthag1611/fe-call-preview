@@ -12,7 +12,7 @@ import { useCallStream } from '../api/use-call-stream'
 import { useAudioPlayback } from '../lib/use-audio-playback'
 import { isRunningType } from '../lib/event-meta'
 import { fmtDuration, fmtStartedAt, initialsOf } from '../lib/format'
-import { CallEventType, type CallEvent } from '@/types/call-events'
+import { CallEventType, type CallEvent, type CallSummaryPayload } from '@/types/call-events'
 
 function useElapsed(startISO: string | undefined, active: boolean): string {
   const [now, setNow] = useState(() => Date.now())
@@ -63,19 +63,25 @@ export function CallDetail({ conversationId, onClose, onOpenLearn }: {
             ),
           )
         : 0
-  const { count, controls, audioRef } = useAudioPlayback(
-    stored,
-    duration,
-    call?.summary?.audio ?? undefined,
-  )
+  // Ghi âm: ưu tiên audio trong payload event call.summary (đúng dữ liệu thật),
+  // fallback bản tổng hợp call.summary (có thể trống nếu aggregate chưa cập nhật).
+  const summaryFromEvent = stored.find((e) => e.type === CallEventType.CallSummary)
+    ?.payload as CallSummaryPayload | undefined
+  const audioUrl = summaryFromEvent?.audio ?? call?.summary?.audio ?? undefined
+
+  const { count, controls, audioRef } = useAudioPlayback(stored, duration, audioUrl)
 
   const events: CallEvent[] = isLive ? liveEvents : stored.slice(0, count)
 
   const sawTerminal = events.some((e) => TERMINAL.includes(e.type))
   const sawSummary = events.some((e) => e.type === CallEventType.CallSummary)
   useEffect(() => {
-    if (isLive && sawTerminal) qc.invalidateQueries({ queryKey: ['conversations'] })
-  }, [isLive, sawTerminal, qc])
+    // Làm tươi conversation (status/summary/tên khách) khi cuộc gọi kết thúc HOẶC
+    // khi summary vừa về — tránh aggregate `call.summary` bị cũ so với event đã có.
+    if (isLive && (sawTerminal || sawSummary)) {
+      qc.invalidateQueries({ queryKey: ['conversations'] })
+    }
+  }, [isLive, sawTerminal, sawSummary, qc])
 
   const last = events[events.length - 1]
   const runningIndex = isLive && last && isRunningType(last.type) && !sawTerminal ? events.length - 1 : -1
@@ -89,7 +95,6 @@ export function CallDetail({ conversationId, onClose, onOpenLearn }: {
   const identified = !isLive || sawSummary || sawTerminal
   const displayName = identified ? call.customerName ?? 'Chưa rõ' : 'Chưa rõ'
   const displayInitials = identified ? initialsOf(call.customerName) : '?'
-  const audioUrl = call.summary?.audio
 
   return (
     <div className="flex h-full min-h-0 flex-col">

@@ -244,7 +244,7 @@ export function ConversationTimeline({ call, events, runningIndex }: {
             if (ev.type === CallEventType.CallSummary) {
               return (
                 <div key={ev.id} className="my-1.5 mb-3.5">
-                  <SummaryCard call={call} compact />
+                  <SummaryCard call={call} compact summary={ev.payload} />
                 </div>
               )
             }
