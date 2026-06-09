@@ -29,23 +29,27 @@ export function useAudioPlayback(
   // Thời lượng: ưu tiên độ dài thật của file ghi âm khi đã nạp được metadata.
   const total = (audioUrl && audioDur > 0 ? audioDur : durationSec) || 0
 
-  const [t, setT] = useState(0)
+  const [t, setT] = useState(Number.POSITIVE_INFINITY)
   const [playing, setPlaying] = useState(false)
   const [rate, setRateState] = useState(1)
   const raf = useRef(0)
   const prev = useRef(0)
 
-  // Mặc định đặt đầu phát ở CUỐI → transcript hiển thị đầy đủ ngay khi mở.
-  // Bấm Play (toggle khi t>=total) sẽ tua về đầu và phát lại từ đầu.
+  // Đầu phát hiệu dụng: ∞ (mặc định/khi hết file) → kẹp về CUỐI `total` để transcript
+  // hiển thị đầy đủ; giá trị hữu hạn thì kẹp trong [0, total].
+  const tEff = Number.isFinite(t) ? Math.min(Math.max(0, t), total) : total
+
+  // Reset CHỈ khi đổi cuộc gọi (events). KHÔNG phụ thuộc `total` — vì `total` đổi lúc
+  // metadata audio nạp xong; reset ở đó sẽ pause + tua-0 NGAY SAU khi bấm Play (tịt tiếng).
   useEffect(() => {
-    setT(total)
     setPlaying(false)
+    setT(Number.POSITIVE_INFINITY)
     const a = audioRef.current
     if (a) {
       a.pause()
       a.currentTime = 0
     }
-  }, [events, total])
+  }, [events])
 
   // Đồng bộ với thẻ <audio> thật: đọc thời lượng, dừng khi hết file.
   useEffect(() => {
@@ -56,15 +60,21 @@ export function useAudioPlayback(
     }
     const onEnded = () => {
       setPlaying(false)
-      setT(a.duration || 0)
+      setT(Number.POSITIVE_INFINITY)
+    }
+    const onError = () => {
+      setPlaying(false)
+      console.warn('[audio] không tải/phát được ghi âm:', audioUrl, a.error)
     }
     a.playbackRate = rate
     a.addEventListener('loadedmetadata', onMeta)
     a.addEventListener('ended', onEnded)
+    a.addEventListener('error', onError)
     onMeta()
     return () => {
       a.removeEventListener('loadedmetadata', onMeta)
       a.removeEventListener('ended', onEnded)
+      a.removeEventListener('error', onError)
     }
   }, [audioUrl, rate])
 
@@ -86,7 +96,7 @@ export function useAudioPlayback(
         setT(a.currentTime)
       } else {
         const dt = (now - prev.current) / 1000
-        setT((x) => Math.min(total, x + dt * rate))
+        setT((x) => Math.min(total, (Number.isFinite(x) ? x : 0) + dt * rate))
       }
       prev.current = now
       raf.current = requestAnimationFrame(tick)
@@ -96,7 +106,7 @@ export function useAudioPlayback(
   }, [playing, rate, total, audioUrl])
 
   useEffect(() => {
-    if (playing && total > 0 && t >= total) setPlaying(false)
+    if (playing && total > 0 && Number.isFinite(t) && t >= total) setPlaying(false)
   }, [t, total, playing])
 
   // Lộ dần transcript theo đầu phát. Đồng hồ AUDIO (0→độ dài file) khác đồng hồ SỰ KIỆN
@@ -105,17 +115,18 @@ export function useAudioPlayback(
   // cuối (hoặc lúc mở, t=total) MỌI event — gồm cả card summary — đều hiện.
   const times = eventTimes(events)
   const eventTotal = times.length ? times[times.length - 1] : 0
-  const revealT = total > 0 ? (t / total) * eventTotal : eventTotal
+  const revealT = total > 0 ? (tEff / total) * eventTotal : eventTotal
   const count = times.filter((x) => x <= revealT + 1e-3).length
 
   const controls: AudioControls = {
     playing,
     rate,
-    t,
+    t: tEff,
     total,
     toggle: () =>
       setPlaying((p) => {
-        if (!p && t >= total) {
+        // Đang ở cuối → bấm Play sẽ phát lại từ đầu.
+        if (!p && tEff >= total - 0.05) {
           setT(0)
           const a = audioRef.current
           if (a) a.currentTime = 0
