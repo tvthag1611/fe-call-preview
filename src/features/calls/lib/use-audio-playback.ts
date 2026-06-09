@@ -99,8 +99,14 @@ export function useAudioPlayback(
     if (playing && total > 0 && t >= total) setPlaying(false)
   }, [t, total, playing])
 
+  // Lộ dần transcript theo đầu phát. Đồng hồ AUDIO (0→độ dài file) khác đồng hồ SỰ KIỆN
+  // (0→mốc event cuối) — vì summary/ended sinh ra ở/sau lúc kết thúc ghi âm, mốc của chúng
+  // có thể vượt quá độ dài audio. Ánh xạ tỉ lệ đầu phát sang đồng hồ sự kiện để khi tua tới
+  // cuối (hoặc lúc mở, t=total) MỌI event — gồm cả card summary — đều hiện.
   const times = eventTimes(events)
-  const count = times.filter((x) => x <= t + 1e-3).length
+  const eventTotal = times.length ? times[times.length - 1] : 0
+  const revealT = total > 0 ? (t / total) * eventTotal : eventTotal
+  const count = times.filter((x) => x <= revealT + 1e-3).length
 
   const controls: AudioControls = {
     playing,
