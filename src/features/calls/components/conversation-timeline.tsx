@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from '@tanstack/react-router'
 import { Icon } from '@/components/biva/icon'
 import { cn } from '@/lib/utils'
 import { CoordinationRow } from './coordination-row'
@@ -182,10 +183,22 @@ function ActionRow({ ev, time, running, prevAction, nextAction }: {
         </div>
         {sub && <div className="mt-0.5 text-[13px] leading-relaxed text-muted-foreground">{sub}</div>}
         {isLearn && !!p.needs && (
-          <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700">
-            <Icon name="graduation-cap" size={13} /> {p.ticketId ? `Phiếu ${p.ticketId as string} · ` : ''}
-            {(p.title as string) ?? ''}
-          </div>
+          p.ticketId ? (
+            <Link
+              to="/learn/$id"
+              params={{ id: p.ticketId as string }}
+              className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700 no-underline transition-colors hover:border-orange-300 hover:bg-orange-100"
+              title="Mở phiếu học"
+            >
+              <Icon name="graduation-cap" size={13} /> {`Phiếu ${p.ticketId as string} · `}
+              {(p.title as string) ?? ''}
+              <Icon name="chevron-right" size={13} className="opacity-60" />
+            </Link>
+          ) : (
+            <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700">
+              <Icon name="graduation-cap" size={13} /> {(p.title as string) ?? ''}
+            </div>
+          )
         )}
         {showDetail && <JsonBlock value={detailVal} />}
       </div>
