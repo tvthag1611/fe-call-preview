@@ -56,6 +56,25 @@ export const CallEventType = {
 
 export type CallEventType = (typeof CallEventType)[keyof typeof CallEventType]
 
+/**
+ * Thứ tự ngữ nghĩa của event LIFECYCLE — tiebreaker khi nhiều event CÙNG `occurredAt`.
+ * Event giữa cuộc gọi mặc định 50, khi trùng mốc phân định tiếp bằng `seq`.
+ * Giữ ĐỒNG BỘ với BE (be-biva-preview/src/common/call-events.ts).
+ */
+const LIFECYCLE_RANK: Partial<Record<CallEventType, number>> = {
+  [CallEventType.CallIncoming]: 0,
+  [CallEventType.ConversationCreated]: 1,
+  [CallEventType.CallAnswered]: 2,
+  [CallEventType.CallSummary]: 90,
+  [CallEventType.ConversationEnded]: 95,
+  [CallEventType.CallEnded]: 100,
+}
+
+/** Hạng lifecycle của một loại event (event giữa cuộc gọi → 50). */
+export function lifecycleRank(type: CallEventType): number {
+  return LIFECYCLE_RANK[type] ?? 50
+}
+
 /** Trạng thái của một cuộc hội thoại. */
 export const ConversationStatus = {
   /** Đang đổ chuông (đã có call.incoming, chưa bắt máy). */
@@ -301,6 +320,8 @@ export type CallEvent = {
     type: K
     /** ISO 8601 timestamp khi sự kiện xảy ra. */
     occurredAt: string
+    /** Số thứ tự ghi tăng dần (BE gán) — tiebreaker khi `occurredAt` bằng nhau. */
+    seq?: number
     payload?: CallEventPayloadMap[K]
   }
 }[keyof CallEventPayloadMap]

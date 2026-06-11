@@ -1,7 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { API_BASE_URL } from '@/lib/api-client'
-import type { CallEvent } from '@/types/call-events'
+import { lifecycleRank, type CallEvent } from '@/types/call-events'
+
+/**
+ * Thứ tự hiển thị: `occurredAt`, rồi hạng lifecycle (cho event trùng mốc thời gian),
+ * cuối cùng `seq` (thứ tự ghi từ BE) — khớp với cách BE sắp xếp ở findEvents.
+ */
+function compareEvents(a: CallEvent, b: CallEvent): number {
+  if (a.occurredAt !== b.occurredAt) return a.occurredAt < b.occurredAt ? -1 : 1
+  const ra = lifecycleRank(a.type)
+  const rb = lifecycleRank(b.type)
+  if (ra !== rb) return ra - rb
+  return (a.seq ?? 0) - (b.seq ?? 0)
+}
 
 export type StreamStatus = 'connecting' | 'open' | 'closed' | 'error'
 
@@ -62,14 +74,12 @@ export function useCallStream(
     }
   }, [conversationId])
 
-  // gộp event đã lưu + event nhận qua SSE, dedupe theo id, sắp theo thời gian
+  // gộp event đã lưu + event nhận qua SSE, dedupe theo id, sắp theo composite order
   const events = useMemo(() => {
     const map = new Map<string, CallEvent>()
     for (const e of initialEvents) map.set(e.id, e)
     for (const e of streamed) map.set(e.id, e)
-    return [...map.values()].sort((a, b) =>
-      a.occurredAt < b.occurredAt ? -1 : a.occurredAt > b.occurredAt ? 1 : 0,
-    )
+    return [...map.values()].sort(compareEvents)
   }, [initialEvents, streamed])
 
   return { events, status }
