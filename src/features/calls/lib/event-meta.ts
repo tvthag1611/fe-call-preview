@@ -122,14 +122,41 @@ export function isCoordUnanswered(ev: CallEvent): boolean {
 }
 
 /**
- * Tách bỏ @mention ở đầu câu trả lời điều phối (vd "@Oanh Biva AI có em nhé")
- * — chỉ giữ nội dung thật ("có em nhé"). Heuristic: bỏ '@' + tên người được nhắc
- * (từ ngay sau '@' và các từ kế tiếp viết hoa), phần còn lại là câu trả lời.
+ * Tên hiển thị của bot trên Zalo — dùng để tách @mention ở đầu câu trả lời điều phối.
+ * Zalo gửi mention dưới dạng text thường (không kèm offset), nên phải so khớp đúng tên.
+ * Thêm biến thể tên ở đây nếu bot đổi tên hiển thị.
+ */
+export const BOT_MENTION_NAMES = ['Oanh Biva Al']
+
+/** Chuẩn hoá để so khớp tên: bỏ dấu cách thừa + thường hoá. */
+const normMention = (s: string): string => s.trim().replace(/\s+/g, ' ').toLowerCase()
+
+/**
+ * Tách bỏ @mention ở đầu câu trả lời điều phối (vd "@Oanh Biva Al Không em nhé")
+ * — chỉ giữ nội dung thật ("Không em nhé").
+ *
+ * Ưu tiên: bỏ ĐÚNG tên bot đã biết (`BOT_MENTION_NAMES`) để không cắt nhầm khi nội
+ * dung mở đầu bằng từ viết hoa (vd "Không"). Fallback (tên lạ): heuristic cũ — bỏ '@'
+ * + từ ngay sau và các từ kế tiếp viết hoa.
  */
 export function stripMention(text: string): string {
   const t = (text ?? '').trim()
   if (!t.startsWith('@')) return t
-  const words = t.slice(1).split(/\s+/)
+  const body = t.slice(1).replace(/^\s+/, '')
+
+  // 1) Khớp đúng tên bot đã biết (không phân biệt hoa/thường, dấu cách).
+  const bodyNorm = normMention(body)
+  for (const name of BOT_MENTION_NAMES) {
+    const nameNorm = normMention(name)
+    if (bodyNorm.startsWith(nameNorm)) {
+      // Cắt theo số từ của tên (an toàn với khác biệt khoảng trắng), giữ phần còn lại.
+      const rest = body.split(/\s+/).slice(nameNorm.split(' ').length).join(' ').trim()
+      if (rest) return rest
+    }
+  }
+
+  // 2) Fallback heuristic cho tên không nằm trong danh sách.
+  const words = body.split(/\s+/)
   let i = 0
   while (i < words.length && (i === 0 || /^\p{Lu}/u.test(words[i]))) i++
   const rest = words.slice(i).join(' ').trim()
