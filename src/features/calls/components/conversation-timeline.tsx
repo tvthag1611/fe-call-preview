@@ -220,8 +220,9 @@ export function ConversationTimeline({ call, events, runningIndex }: {
 
   // Dựng danh sách node hiển thị:
   //  • bot.thinking đã xong → ẩn hẳn (chỉ giữ event đang chạy).
-  //  • Lời nói liên tiếp cùng một bên (bot.utterance mode "append" / mảnh ASR của khách)
-  //    → gộp thành MỘT bong bóng đọc liền mạch.
+  //  • MỖI lời nói (bot.utterance / customer.utterance) là MỘT bong bóng riêng —
+  //    không gộp lời nói liên tiếp cùng một bên, để thể hiện đúng các câu nói ngắn,
+  //    tách bạch từng lượt nói.
   type SpeechNode = { kind: 'speech'; isBot: boolean; text: string; i: number; key: string }
   type EventNode = { kind: 'event'; ev: CallEvent; i: number }
   const nodes: Array<SpeechNode | EventNode> = []
@@ -231,12 +232,7 @@ export function ConversationTimeline({ call, events, runningIndex }: {
       const isBot = ev.type === CallEventType.BotUtterance
       const text = ((payloadOf(ev).text as string) ?? '').trim()
       if (!text) return
-      const prev = nodes[nodes.length - 1]
-      if (prev && prev.kind === 'speech' && prev.isBot === isBot) {
-        prev.text = prev.text ? `${prev.text} ${text}` : text
-      } else {
-        nodes.push({ kind: 'speech', isBot, text, i, key: ev.id })
-      }
+      nodes.push({ kind: 'speech', isBot, text, i, key: ev.id })
       return
     }
     nodes.push({ kind: 'event', ev, i })
