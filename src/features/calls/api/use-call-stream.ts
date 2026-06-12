@@ -32,6 +32,16 @@ export function useCallStream(
   const [status, setStatus] = useState<StreamStatus>('closed')
   const seen = useRef(new Set<string>())
 
+  // seq cao nhất đã có từ REST (initialEvents). Seed làm `Last-Event-ID` ở lần connect
+  // ĐẦU để BE phát lại phần lỡ giữa lúc REST chụp snapshot và lúc SSE mở. Dùng ref vì
+  // effect chỉ chạy lại khi đổi conversationId — đọc giá trị mới nhất tại thời điểm connect.
+  const seedSeq = useMemo(
+    () => initialEvents.reduce((m, e) => Math.max(m, e.seq ?? 0), 0),
+    [initialEvents],
+  )
+  const seedSeqRef = useRef(0)
+  seedSeqRef.current = seedSeq
+
   useEffect(() => {
     if (!conversationId) return
 
@@ -40,8 +50,14 @@ export function useCallStream(
     setStreamed([])
     setStatus('connecting')
 
+    // Key viết thường khớp đúng tên header thư viện tự ghi đè khi nhận event có `id`,
+    // nhờ vậy các lần reconnect sau dùng seq mới nhất chứ không kẹt ở seed ban đầu.
+    const headers: Record<string, string> =
+      seedSeqRef.current > 0 ? { 'last-event-id': String(seedSeqRef.current) } : {}
+
     fetchEventSource(`${API_BASE_URL}/conversations/${conversationId}/stream`, {
       signal: controller.signal,
+      headers,
       // Giữ kết nối khi tab bị ẩn (mặc định thư viện sẽ đóng) để không lỡ event
       // realtime lúc người dùng chuyển cửa sổ.
       openWhenHidden: true,
@@ -50,8 +66,14 @@ export function useCallStream(
         setStatus('open')
       },
       onmessage: (msg) => {
-        if (!msg.data) return
-        const event = JSON.parse(msg.data) as CallEvent
+        // Bỏ qua heartbeat (event 'ping' giữ kết nối sống) và tin rỗng.
+        if (msg.event === 'ping' || !msg.data) return
+        let event: CallEvent
+        try {
+          event = JSON.parse(msg.data) as CallEvent
+        } catch {
+          return // dữ liệu không phải JSON (vd ping) → bỏ qua
+        }
         if (seen.current.has(event.id)) return
         seen.current.add(event.id)
         setStreamed((prev) => [...prev, event])

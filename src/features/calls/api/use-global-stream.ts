@@ -44,7 +44,7 @@ export function useGlobalStream() {
       signal: controller.signal,
       openWhenHidden: true,
       onmessage: (msg) => {
-        if (!msg.data) return
+        if (msg.event === 'ping' || !msg.data) return
         let type: string | undefined
         let conversationId: string | undefined
         try {
