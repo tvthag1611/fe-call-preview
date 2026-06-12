@@ -4,22 +4,21 @@ import { API_BASE_URL } from '@/lib/api-client'
 import { lifecycleRank, type CallEvent } from '@/types/call-events'
 
 /**
- * Thứ tự hiển thị: `occurredAt`, rồi hạng lifecycle (cho event trùng mốc thời gian),
- * cuối cùng `seq` (thứ tự ghi từ BE) — khớp với cách BE sắp xếp ở findEvents.
+ * Thứ tự hiển thị = `seq` (số thứ tự ghi tăng dần do BE gán, AUTO_INCREMENT) — đúng
+ * diễn biến cuộc gọi. `occurredAt` CHỈ dùng để tính/hiển thị thời gian, KHÔNG sắp xếp.
+ * Fallback hiếm (event thiếu `seq`): occurredAt → hạng lifecycle, để vẫn ổn định.
  */
 function compareEvents(a: CallEvent, b: CallEvent): number {
+  if (a.seq != null && b.seq != null) return a.seq - b.seq
   if (a.occurredAt !== b.occurredAt) return a.occurredAt < b.occurredAt ? -1 : 1
-  const ra = lifecycleRank(a.type)
-  const rb = lifecycleRank(b.type)
-  if (ra !== rb) return ra - rb
-  return (a.seq ?? 0) - (b.seq ?? 0)
+  return lifecycleRank(a.type) - lifecycleRank(b.type)
 }
 
 export type StreamStatus = 'connecting' | 'open' | 'closed' | 'error'
 
 /**
  * Subscribe dòng sự kiện realtime (SSE) của một cuộc hội thoại và GỘP với các
- * event đã lưu (initialEvents) — dedupe theo id, sắp theo occurredAt — để khi mở
+ * event đã lưu (initialEvents) — dedupe theo id, sắp theo `seq` — để khi mở
  * một cuộc đang diễn ra giữa chừng vẫn thấy đầy đủ từ đầu, không mất phần trước.
  *
  * Lưu ý: chỉ subscribe lại khi conversationId đổi; initialEvents thay đổi (load
