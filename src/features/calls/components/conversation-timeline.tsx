@@ -220,9 +220,13 @@ export function ConversationTimeline({ call, events, runningIndex }: {
 
   // Dựng danh sách node hiển thị:
   //  • bot.thinking đã xong → ẩn hẳn (chỉ giữ event đang chạy).
-  //  • MỖI lời nói (bot.utterance / customer.utterance) là MỘT bong bóng riêng —
-  //    không gộp lời nói liên tiếp cùng một bên, để thể hiện đúng các câu nói ngắn,
-  //    tách bạch từng lượt nói.
+  //  • Gộp các TTS segment LIỀN NHAU của BOT thành MỘT bong bóng: một lượt nói thật của
+  //    bot thường bị nền tảng cắt thành nhiều `bot.utterance` ngắn liên tiếp
+  //    ("...8 giờ, 9 giờ 30, 13 giờ," | "14 giờ 30, nhiều chuyến tối nữa anh ạ." | "Anh
+  //    muốn đi chuyến mấy giờ…") → nối lại để không hiện câu cụt. Chỉ gộp khi hai mảnh
+  //    nằm SÁT nhau trong dòng đã sort: bất kỳ event khác (lời khách, tool, hold, điều
+  //    phối…) xen giữa đều ngắt lượt, nên KHÔNG nhập nhằng nối hai lượt rời thành câu
+  //    chạy (vd hai câu chờ quanh một lần hold). Lời KHÁCH (ASR final) giữ tách từng câu.
   type SpeechNode = { kind: 'speech'; isBot: boolean; text: string; i: number; key: string }
   type EventNode = { kind: 'event'; ev: CallEvent; i: number }
   const nodes: Array<SpeechNode | EventNode> = []
@@ -232,6 +236,14 @@ export function ConversationTimeline({ call, events, runningIndex }: {
       const isBot = ev.type === CallEventType.BotUtterance
       const text = ((payloadOf(ev).text as string) ?? '').trim()
       if (!text) return
+      const prev = nodes[nodes.length - 1]
+      if (isBot && prev && prev.kind === 'speech' && prev.isBot) {
+        // 'replace' = bản chốt của lượt → ĐÈ text đã gom (tránh nối đôi thành câu chạy
+        // như "...hỏi quản lý giúp Dạ em đang hỏi nhân viên..."); 'append'/không có =
+        // nối tiếp mảnh TTS vào cùng bong bóng.
+        prev.text = payloadOf(ev).mode === 'replace' ? text : `${prev.text} ${text}`
+        return
+      }
       nodes.push({ kind: 'speech', isBot, text, i, key: ev.id })
       return
     }

@@ -130,10 +130,16 @@ export interface CustomerUtterancePayload {
 /** bot.thinking — không có payload trong thực tế. */
 export type BotThinkingPayload = Record<string, never>
 
-/** bot.utterance */
+/** bot.utterance — một MẢNH TTS của lượt nói (nền tảng cắt 1 lượt thành nhiều mảnh). */
 export interface BotUtterancePayload {
-  /** Lời bot nói. (suy đoán) */
+  /** Lời bot nói (một mảnh). (THẬT) */
   text: string
+  /**
+   * Cách ghép mảnh này vào lượt đang nói: (THẬT)
+   *  - 'append' (mặc định): nối tiếp vào text đã có của lượt.
+   *  - 'replace': text này là bản chốt, ĐÈ các mảnh trước của cùng lượt (không nối thêm).
+   */
+  mode?: 'append' | 'replace'
 }
 
 /** bot.tool_called */

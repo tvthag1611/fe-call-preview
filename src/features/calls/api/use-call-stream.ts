@@ -1,17 +1,53 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { API_BASE_URL } from '@/lib/api-client'
-import { lifecycleRank, type CallEvent } from '@/types/call-events'
+import { CallEventType, lifecycleRank, type CallEvent } from '@/types/call-events'
 
 /**
- * Thứ tự hiển thị = `seq` (số thứ tự ghi tăng dần do BE gán, AUTO_INCREMENT) — đúng
- * diễn biến cuộc gọi. `occurredAt` CHỈ dùng để tính/hiển thị thời gian, KHÔNG sắp xếp.
- * Fallback hiếm (event thiếu `seq`): occurredAt → hạng lifecycle, để vẫn ổn định.
+ * Trục sắp xếp CHÍNH = `occurredAt` (mốc sự kiện THẬT theo nền tảng gọi); khi trùng mốc
+ * mili-giây thì phân định bằng hạng lifecycle, cuối cùng `seq` (thứ tự ghi) phá hòa.
+ * Đây là cùng comparator BE dùng cho REST (conversations.service.ts) → snapshot REST và
+ * stream SSE xếp y hệt nhau.
+ *
+ * Vì sao KHÔNG lấy `seq` (thứ tự đến) làm chính: event tới BE không theo đúng thứ tự xảy
+ * ra — vd kết quả `search_trips` (occurredAt 16.946) về SAU một TTS (17.149) nên seq lớn
+ * hơn; xếp theo seq sẽ đẩy nó xuống sai chỗ. Xếp theo occurredAt mới đúng diễn biến.
+ *
+ * Caveat có ý thức: occurredAt KHÔNG khớp tuyệt đối với thanh audio (BE không sinh
+ * audioOffsetMs). Timeline và trình phát ghi âm là hai đồng hồ độc lập — click-to-seek
+ * chỉ gần đúng (xem use-audio-playback.ts).
  */
 function compareEvents(a: CallEvent, b: CallEvent): number {
-  if (a.seq != null && b.seq != null) return a.seq - b.seq
-  if (a.occurredAt !== b.occurredAt) return a.occurredAt < b.occurredAt ? -1 : 1
-  return lifecycleRank(a.type) - lifecycleRank(b.type)
+  const ta = new Date(a.occurredAt).getTime()
+  const tb = new Date(b.occurredAt).getTime()
+  if (ta !== tb) return ta - tb
+  const ra = lifecycleRank(a.type)
+  const rb = lifecycleRank(b.type)
+  if (ra !== rb) return ra - rb
+  return (a.seq ?? 0) - (b.seq ?? 0)
+}
+
+/**
+ * Gộp `coordination.result` trùng theo `holdId`: nền tảng log lặp một phản hồi (cùng
+ * holdId, cùng nội dung) thành nhiều bản id khác nhau → dedup-theo-id KHÔNG bắt được,
+ * gây hiện 2 dòng "Phản hồi từ Zalo" giống hệt. Giữ bản `seq` LỚN NHẤT mỗi holdId (bản
+ * mới nhất — cũng đúng khi answers được cập nhật dần). Loại khác giữ nguyên.
+ */
+function dedupeCoordinationResults(events: CallEvent[]): CallEvent[] {
+  const lastSeq = new Map<string, number>()
+  for (const e of events) {
+    if (e.type !== CallEventType.CoordinationResult) continue
+    const holdId = (e.payload as { holdId?: string } | undefined)?.holdId
+    if (!holdId) continue
+    lastSeq.set(holdId, Math.max(lastSeq.get(holdId) ?? -1, e.seq ?? 0))
+  }
+  if (lastSeq.size === 0) return events
+  return events.filter((e) => {
+    if (e.type !== CallEventType.CoordinationResult) return true
+    const holdId = (e.payload as { holdId?: string } | undefined)?.holdId
+    if (!holdId) return true
+    return (e.seq ?? 0) === lastSeq.get(holdId)
+  })
 }
 
 export type StreamStatus = 'connecting' | 'open' | 'closed' | 'error'
@@ -105,7 +141,7 @@ export function useCallStream(
     const map = new Map<string, CallEvent>()
     for (const e of initialEvents) map.set(e.id, e)
     for (const e of streamed) map.set(e.id, e)
-    return [...map.values()].sort(compareEvents)
+    return dedupeCoordinationResults([...map.values()].sort(compareEvents))
   }, [initialEvents, streamed])
 
   return { events, status }
