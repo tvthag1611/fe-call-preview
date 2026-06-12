@@ -11,18 +11,6 @@ const TERMINAL: string[] = [
 ]
 
 /**
- * Event "enrich sau snapshot": kết thúc cuộc gọi & tóm tắt. Khi tới (điển hình từ
- * webhook summary, lúc màn chi tiết đã chuyển sang non-live nên KHÔNG còn nghe SSE),
- * cần invalidate detail + events của ĐÚNG cuộc gọi để màn chi tiết đang mở refetch
- * và cập nhật ngay — không phải thoát ra/vào lại.
- */
-const DETAIL_REFRESH: string[] = [
-  CallEventType.CallEnded,
-  CallEventType.ConversationEnded,
-  CallEventType.CallSummary,
-]
-
-/**
  * Lắng nghe SSE TOÀN CỤC (/realtime/stream) để cập nhật realtime danh sách
  * Inbound + chỉ báo "đang diễn ra" ngay khi có cuộc gọi mới đến — không cần reload.
  *
@@ -68,16 +56,6 @@ export function useGlobalStream() {
         }
 
         if (type === CallEventType.LearningChecked) touchLearning = true
-
-        // Refetch chi tiết + timeline của đúng cuộc gọi khi payload được enrich
-        // (kết thúc/summary) → màn chi tiết đang mở cập nhật ngay. Prefix
-        // ['conversations', id] khớp cả query detail lẫn events; KHÔNG khớp danh sách.
-        if (conversationId && type && DETAIL_REFRESH.includes(type)) {
-          qc.invalidateQueries({
-            queryKey: ['conversations', conversationId],
-            refetchType: 'all',
-          })
-        }
 
         if (type && TERMINAL.includes(type)) {
           // Gỡ "live" ngay trên cache để badge đổi tức thì (không chờ mạng),

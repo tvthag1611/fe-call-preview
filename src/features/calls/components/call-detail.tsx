@@ -37,6 +37,13 @@ function MetaItem({ icon, label, value }: { icon: string; label: string; value: 
 
 const TERMINAL: string[] = [CallEventType.CallEnded, CallEventType.ConversationEnded]
 
+/**
+ * `conversation_id` dạng "YYYYMMDDhhmmss_<hex>" là cuộc gọi từ tổng đài → CHẮC CHẮN có
+ * webhook summary (kèm ghi âm) gửi về sau khi kết thúc. Dạng khác thì không có summary.
+ * Dùng để quyết định footer: đang chờ summary ("đang tóm tắt") hay thực sự không có ghi âm.
+ */
+const FROM_SWITCHBOARD = /^\d{14}_[0-9a-f]+$/i
+
 export function CallDetail({ conversationId, onClose, onOpenLearn }: {
   conversationId: string
   onClose: () => void
@@ -47,41 +54,52 @@ export function CallDetail({ conversationId, onClose, onOpenLearn }: {
   const { data: stored = [] } = useQuery(conversationEventsQuery(conversationId))
 
   const isLive = call?.status === 'live'
-  const { events: liveEvents } = useCallStream(isLive ? conversationId : undefined, stored)
 
-  // thời lượng: ưu tiên durationSec; nếu chưa có thì suy từ mốc event đã lưu
+  // NGUỒN TIMELINE DUY NHẤT: SSE per-conversation mở suốt thời gian panel mở (không buộc
+  // vào isLive). Nhờ vậy MỌI event của cuộc này — đến lúc nào, kể cả summary/đặt vé tới
+  // SAU endcall — đều được đẩy về và hiển thị ngay, không cần timer/đoán. SSE đã có
+  // heartbeat + replay theo Last-Event-ID nên giữ mở lâu vẫn ổn định và rẻ.
+  const { events: timeline } = useCallStream(conversationId, stored)
+
+  // thời lượng: ưu tiên durationSec; nếu chưa có thì suy từ mốc event trong timeline
   const duration =
     call?.durationSec && call.durationSec > 0
       ? call.durationSec
-      : stored.length >= 2
+      : timeline.length >= 2
         ? Math.max(
             1,
             Math.round(
-              (new Date(stored[stored.length - 1].occurredAt).getTime() -
-                new Date(stored[0].occurredAt).getTime()) /
+              (new Date(timeline[timeline.length - 1].occurredAt).getTime() -
+                new Date(timeline[0].occurredAt).getTime()) /
                 1000,
             ),
           )
         : 0
   // Ghi âm: ưu tiên audio trong payload event call.summary (đúng dữ liệu thật),
   // fallback bản tổng hợp call.summary (có thể trống nếu aggregate chưa cập nhật).
-  const summaryFromEvent = stored.find((e) => e.type === CallEventType.CallSummary)
+  // Audio & cờ trạng thái rút từ TIMELINE đầy đủ (không phải bản đã cắt theo playback),
+  // để footer không nhấp nháy khi đang tua dở.
+  const summaryFromEvent = timeline.find((e) => e.type === CallEventType.CallSummary)
     ?.payload as CallSummaryPayload | undefined
   const audioUrl = summaryFromEvent?.audio ?? call?.summary?.audio ?? undefined
+  const sawTerminal = timeline.some((e) => TERMINAL.includes(e.type))
+  const hasSummary = timeline.some((e) => e.type === CallEventType.CallSummary)
 
-  const { count, controls, audioRef } = useAudioPlayback(stored, duration, audioUrl)
+  const { count, controls, audioRef } = useAudioPlayback(timeline, duration, audioUrl)
 
-  const events: CallEvent[] = isLive ? liveEvents : stored.slice(0, count)
+  // Chỉ "phát lại" (lộ dần theo đầu phát ghi âm, count) khi CÓ audio. Đang live hoặc
+  // không có bản ghi âm → hiện ĐẦY ĐỦ ngay, không gate theo count.
+  const events: CallEvent[] = isLive || !audioUrl ? timeline : timeline.slice(0, count)
 
-  const sawTerminal = events.some((e) => TERMINAL.includes(e.type))
-  const sawSummary = events.some((e) => e.type === CallEventType.CallSummary)
   useEffect(() => {
-    // Làm tươi conversation (status/summary/tên khách) khi cuộc gọi kết thúc HOẶC
-    // khi summary vừa về — tránh aggregate `call.summary` bị cũ so với event đã có.
-    if (isLive && (sawTerminal || sawSummary)) {
-      qc.invalidateQueries({ queryKey: ['conversations'] })
+    // Làm tươi aggregate conversation (status/summary/tên khách/durationSec) khi cuộc gọi
+    // kết thúc HOẶC summary đã về — các trường này nằm ở REST, không đi qua SSE event.
+    // Chạy 1 lần khi cờ bật (cờ là boolean ổn định) nên không lặp.
+    if (sawTerminal || hasSummary) {
+      qc.invalidateQueries({ queryKey: ['conversations', conversationId], exact: true })
+      qc.invalidateQueries({ queryKey: ['conversations'], exact: true })
     }
-  }, [isLive, sawTerminal, sawSummary, qc])
+  }, [sawTerminal, hasSummary, conversationId, qc])
 
   const last = events[events.length - 1]
   const runningIndex = isLive && last && isRunningType(last.type) && !sawTerminal ? events.length - 1 : -1
@@ -92,7 +110,18 @@ export function CallDetail({ conversationId, onClose, onOpenLearn }: {
     return <div className="flex h-full items-center justify-center text-muted-foreground">Đang tải…</div>
   }
 
-  const identified = !isLive || sawSummary || sawTerminal
+  // Footer: đang gọi → chỉ báo live; đã có ghi âm → trình phát; cuộc tổng đài chưa có
+  // summary → "đang tóm tắt" (SSE vẫn mở nên có summary là tự chuyển); còn lại → không ghi âm.
+  const fromSwitchboard = FROM_SWITCHBOARD.test(conversationId)
+  const footer: 'live' | 'player' | 'summarizing' | 'no-audio' = isLive
+    ? 'live'
+    : audioUrl
+      ? 'player'
+      : fromSwitchboard && !hasSummary
+        ? 'summarizing'
+        : 'no-audio'
+
+  const identified = !isLive || hasSummary || sawTerminal
   const displayName = identified ? call.customerName ?? 'Chưa rõ' : 'Chưa rõ'
   const displayInitials = identified ? initialsOf(call.customerName) : '?'
 
@@ -153,14 +182,25 @@ export function CallDetail({ conversationId, onClose, onOpenLearn }: {
         <ConversationTimeline call={call} events={events} runningIndex={runningIndex} />
       </div>
 
-      {/* bottom — player ghi âm hoặc indicator live */}
+      {/* bottom — chỉ báo live / đang tóm tắt / không ghi âm / trình phát ghi âm */}
       <div className="border-t bg-card px-6 py-3.5">
-        {isLive ? (
+        {footer === 'live' ? (
           <div className="flex items-center gap-3 text-green-600">
             <span className="size-[9px] rounded-full bg-green-600 animate-pulse" />
             <span className="text-[13.5px] font-semibold text-green-700">Đang ghi âm cuộc gọi trực tiếp</span>
             <Waveform />
             <span className="ml-auto font-mono text-sm font-semibold">{elapsed}</span>
+          </div>
+        ) : footer === 'summarizing' ? (
+          <div className="flex items-center gap-3 text-muted-foreground">
+            <Icon name="loader-circle" size={17} className="animate-spin text-primary" />
+            <span className="text-[13.5px] font-semibold text-foreground">Đang tóm tắt cuộc gọi…</span>
+            <span className="text-xs text-muted-foreground">Đang chờ bản ghi âm & tóm tắt từ tổng đài</span>
+          </div>
+        ) : footer === 'no-audio' ? (
+          <div className="flex items-center gap-3 text-muted-foreground">
+            <Icon name="mic-off" size={16} />
+            <span className="text-[13.5px] font-medium">Cuộc gọi đã kết thúc — không có bản ghi âm</span>
           </div>
         ) : (
           <AudioPlayer controls={controls} audioUrl={audioUrl} audioRef={audioRef} />
