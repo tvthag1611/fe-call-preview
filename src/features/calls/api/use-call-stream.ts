@@ -30,7 +30,6 @@ export function useCallStream(
 ) {
   const [streamed, setStreamed] = useState<CallEvent[]>([])
   const [status, setStatus] = useState<StreamStatus>('closed')
-  const seen = useRef(new Set<string>())
 
   // seq cao nhất đã có từ REST (initialEvents). Seed làm `Last-Event-ID` ở lần connect
   // ĐẦU để BE phát lại phần lỡ giữa lúc REST chụp snapshot và lúc SSE mở. Dùng ref vì
@@ -46,7 +45,6 @@ export function useCallStream(
     if (!conversationId) return
 
     const controller = new AbortController()
-    seen.current = new Set()
     setStreamed([])
     setStatus('connecting')
 
@@ -74,9 +72,16 @@ export function useCallStream(
         } catch {
           return // dữ liệu không phải JSON (vd ping) → bỏ qua
         }
-        if (seen.current.has(event.id)) return
-        seen.current.add(event.id)
-        setStreamed((prev) => [...prev, event])
+        // Upsert theo id: event phát lại với payload mới (vd summary/endcall được BE
+        // cập nhật, hoặc replay khi reconnect) sẽ THAY bản cũ thay vì bị bỏ qua →
+        // giao diện cập nhật ngay. `events` memo sort theo seq nên thứ tự vẫn đúng.
+        setStreamed((prev) => {
+          const i = prev.findIndex((e) => e.id === event.id)
+          if (i === -1) return [...prev, event]
+          const next = prev.slice()
+          next[i] = event
+          return next
+        })
       },
       onerror: () => {
         setStatus('error')
