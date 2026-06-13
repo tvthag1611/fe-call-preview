@@ -53,12 +53,18 @@ function dedupeCoordinationResults(events: CallEvent[]): CallEvent[] {
 export type StreamStatus = 'connecting' | 'open' | 'closed' | 'error'
 
 /**
- * Quá ngần này (ms) KHÔNG nhận được gì (event LẪN heartbeat :ping mỗi 15s của BE) thì coi
- * kết nối đã chết âm thầm và chủ động mở lại. Đặt > 2 nhịp ping để không reconnect oan.
+ * Quá ngần này (ms) KHÔNG nhận được gì (event LẪN heartbeat :ping ~5s của BE) thì coi kết
+ * nối đã chết âm thầm và chủ động mở lại. ~> 2 nhịp ping để không reconnect oan khi 1 ping
+ * tới trễ. Giảm cùng nhịp ping BE để phát hiện nhanh hơn (xem realtime.service.ts).
  */
-const STALL_MS = 35_000
+const STALL_MS = 12_000
 /** Nhịp kiểm tra "kết nối câm". */
-const WATCHDOG_TICK_MS = 5_000
+const WATCHDOG_TICK_MS = 3_000
+/**
+ * Khi mạng có lại / quay về tab mà đã im quá ngần này thì nối lại NGAY (không chờ STALL_MS).
+ * Đặt ~1 nhịp ping + đệm: im dưới mức này coi như kết nối còn khoẻ, khỏi reconnect oan.
+ */
+const STALE_GRACE_MS = 7_000
 
 /**
  * Subscribe dòng sự kiện realtime (SSE) của một cuộc hội thoại và GỘP với các
@@ -104,19 +110,38 @@ export function useCallStream(
     const controller = new AbortController()
     setStatus('connecting')
 
-    // Watchdog phát hiện "kết nối câm": BE bắn heartbeat :ping mỗi 15s, nên ở trạng thái
-    // bình thường luôn có tin tới. Nếu quá STALL_MS KHÔNG nhận được gì (event LẪN ping),
-    // kết nối coi như đã chết âm thầm (proxy/NAT cắt nhưng không bắn error → thư viện
-    // KHÔNG tự reconnect) → abort + bump nonce để mở lại; seed Last-Event-ID cho BE replay
-    // phần đã lỡ. Đây là lưới chính chống "timeline đứng giữa cuộc gọi".
+    // Mở lại kết nối: abort luồng hiện tại + bump nonce → effect chạy lại, seed Last-Event-ID
+    // cho BE replay phần đã lỡ. Gọi 1 lần (cờ done chặn gọi kép từ watchdog lẫn event mạng).
+    let done = false
+    const reconnect = () => {
+      if (done) return
+      done = true
+      clearInterval(watchdog)
+      controller.abort()
+      setReconnectNonce((n) => n + 1)
+    }
+
+    // Watchdog phát hiện "kết nối câm": BE bắn heartbeat :ping ~5s, nên ở trạng thái bình
+    // thường luôn có tin tới. Nếu quá STALL_MS KHÔNG nhận được gì (event LẪN ping), kết nối
+    // coi như đã chết âm thầm (proxy/NAT cắt nhưng không bắn error → thư viện KHÔNG tự
+    // reconnect) → mở lại. Đây là lưới chính chống "timeline đứng giữa cuộc gọi".
     let lastActivity = Date.now()
     const watchdog = setInterval(() => {
-      if (Date.now() - lastActivity > STALL_MS) {
-        clearInterval(watchdog)
-        controller.abort()
-        setReconnectNonce((n) => n + 1)
-      }
+      if (Date.now() - lastActivity > STALL_MS) reconnect()
     }, WATCHDOG_TICK_MS)
+
+    // Nối lại TỨC THÌ theo tín hiệu trình duyệt (không chờ STALL_MS) cho các ca trình duyệt
+    // BIẾT là đứt: mạng vừa có lại (online) → SSE chắc chắn đã chết; quay về tab/cửa sổ
+    // (visible/focus) mà đã im quá STALE_GRACE_MS → nhiều khả năng đã đứt lúc tab bị ẩn.
+    const onOnline = () => reconnect()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastActivity > STALE_GRACE_MS) {
+        reconnect()
+      }
+    }
+    window.addEventListener('online', onOnline)
+    window.addEventListener('focus', onVisible)
+    document.addEventListener('visibilitychange', onVisible)
 
     const headers: Record<string, string> =
       seedSeqRef.current > 0 ? { 'last-event-id': String(seedSeqRef.current) } : {}
@@ -170,6 +195,9 @@ export function useCallStream(
 
     return () => {
       clearInterval(watchdog)
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('focus', onVisible)
+      document.removeEventListener('visibilitychange', onVisible)
       controller.abort()
       setStatus('closed')
     }
