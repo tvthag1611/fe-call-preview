@@ -52,7 +52,7 @@ function jsonLine(line: string, i: number) {
   const m = line.match(/^(\s*)"([^"]*)"(\s*:\s*)(.*)$/)
   if (m) {
     return (
-      <div key={i} className="whitespace-pre">
+      <div key={i} className="whitespace-pre-wrap break-words">
         {m[1]}
         <span className="text-cyan-700">"{m[2]}"</span>
         {m[3]}
@@ -61,12 +61,31 @@ function jsonLine(line: string, i: number) {
     )
   }
   return (
-    <div key={i} className="whitespace-pre text-foreground">
+    <div key={i} className="whitespace-pre-wrap break-words text-foreground">
       {line || ' '}
     </div>
   )
 }
+
+const boxClass =
+  'mt-2.5 rounded-[10px] border bg-muted/40 px-3.5 py-3 font-mono text-xs leading-relaxed font-medium'
+
+/** Văn bản thường → cắt dòng theo cả `\n` và thẻ `<br>`. */
+function TextBlock({ text }: { text: string }) {
+  const lines = text.split(/<br\s*\/?>|\n/i)
+  return (
+    <div className={cn(boxClass, 'whitespace-pre-wrap break-words text-foreground')}>
+      {lines.map((l, i) => (
+        <div key={i}>{l || ' '}</div>
+      ))}
+    </div>
+  )
+}
+
 function JsonBlock({ value }: { value: unknown }) {
+  // Text thuần (không phải object/array) → hiển thị nguyên văn, không stringify.
+  if (typeof value === 'string') return <TextBlock text={value} />
+
   let text: string
   try {
     text = JSON.stringify(value, null, 2)
@@ -74,7 +93,7 @@ function JsonBlock({ value }: { value: unknown }) {
     text = String(value)
   }
   return (
-    <div className="mt-2.5 overflow-x-auto rounded-[10px] border bg-muted/40 px-3.5 py-3 font-mono text-xs leading-relaxed font-medium">
+    <div className={boxClass}>
       {text.split('\n').map((l, i) => jsonLine(l, i))}
     </div>
   )
