@@ -72,7 +72,8 @@ const boxClass =
 
 /** Văn bản thường → cắt dòng theo cả `\n` và thẻ `<br>`. */
 function TextBlock({ text }: { text: string }) {
-  const lines = text.split(/<br\s*\/?>|\n/i)
+  // Tách theo: thẻ <br>, xuống dòng thật (\n, \r\n), và cả chuỗi "\n" literal (dấu \ + n).
+  const lines = text.split(/<br\s*\/?>|\r?\n|\\r?\\n/gi)
   return (
     <div className={cn(boxClass, 'whitespace-pre-wrap break-words text-foreground')}>
       {lines.map((l, i) => (
