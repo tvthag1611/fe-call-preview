@@ -53,6 +53,14 @@ function dedupeCoordinationResults(events: CallEvent[]): CallEvent[] {
 export type StreamStatus = 'connecting' | 'open' | 'closed' | 'error'
 
 /**
+ * Quá ngần này (ms) KHÔNG nhận được gì (event LẪN heartbeat :ping mỗi 15s của BE) thì coi
+ * kết nối đã chết âm thầm và chủ động mở lại. Đặt > 2 nhịp ping để không reconnect oan.
+ */
+const STALL_MS = 35_000
+/** Nhịp kiểm tra "kết nối câm". */
+const WATCHDOG_TICK_MS = 5_000
+
+/**
  * Subscribe dòng sự kiện realtime (SSE) của một cuộc hội thoại và GỘP với các
  * event đã lưu (initialEvents) — dedupe theo id, sắp theo `seq` — để khi mở
  * một cuộc đang diễn ra giữa chừng vẫn thấy đầy đủ từ đầu, không mất phần trước.
@@ -66,26 +74,50 @@ export function useCallStream(
 ) {
   const [streamed, setStreamed] = useState<CallEvent[]>([])
   const [status, setStatus] = useState<StreamStatus>('closed')
+  // Tăng giá trị này để BUỘC mở lại kết nối (watchdog dùng khi phát hiện kết nối câm).
+  const [reconnectNonce, setReconnectNonce] = useState(0)
 
-  // seq cao nhất đã có từ REST (initialEvents). Seed làm `Last-Event-ID` ở lần connect
-  // ĐẦU để BE phát lại phần lỡ giữa lúc REST chụp snapshot và lúc SSE mở. Dùng ref vì
-  // effect chỉ chạy lại khi đổi conversationId — đọc giá trị mới nhất tại thời điểm connect.
+  // Seed `Last-Event-ID` = seq CAO NHẤT đã biết của cuộc này (initialEvents + đã nhận qua
+  // SSE). Khi (re)connect, BE replay phần seq lớn hơn → lấp đúng đoạn lỡ, không trùng/thiếu.
+  // Running-max trong PHẠM VI một conversation; reset khi đổi conversation (seq là global
+  // tăng dần nên seed của conv cũ có thể quá cao, làm conv mới bỏ sót đoạn cần replay).
   const seedSeq = useMemo(
     () => initialEvents.reduce((m, e) => Math.max(m, e.seq ?? 0), 0),
     [initialEvents],
   )
   const seedSeqRef = useRef(0)
-  seedSeqRef.current = seedSeq
+  // Khi ĐỔI conversation: reset seed (seq là global tăng dần → seed của conv cũ có thể quá
+  // cao, làm conv mới bỏ sót đoạn cần replay) và xoá event đã stream của conv cũ. KHÔNG đụng
+  // hai cái này khi chỉ reconnect (watchdog) — giữ nguyên streamed rồi replay lấp đúng phần lỡ.
+  useEffect(() => {
+    seedSeqRef.current = 0
+    setStreamed([])
+  }, [conversationId])
+  // Nâng seed theo seq cao nhất của initialEvents (REST có thể load/refetch sau lần connect).
+  useEffect(() => {
+    if (seedSeq > seedSeqRef.current) seedSeqRef.current = seedSeq
+  }, [seedSeq])
 
   useEffect(() => {
     if (!conversationId) return
 
     const controller = new AbortController()
-    setStreamed([])
     setStatus('connecting')
 
-    // Key viết thường khớp đúng tên header thư viện tự ghi đè khi nhận event có `id`,
-    // nhờ vậy các lần reconnect sau dùng seq mới nhất chứ không kẹt ở seed ban đầu.
+    // Watchdog phát hiện "kết nối câm": BE bắn heartbeat :ping mỗi 15s, nên ở trạng thái
+    // bình thường luôn có tin tới. Nếu quá STALL_MS KHÔNG nhận được gì (event LẪN ping),
+    // kết nối coi như đã chết âm thầm (proxy/NAT cắt nhưng không bắn error → thư viện
+    // KHÔNG tự reconnect) → abort + bump nonce để mở lại; seed Last-Event-ID cho BE replay
+    // phần đã lỡ. Đây là lưới chính chống "timeline đứng giữa cuộc gọi".
+    let lastActivity = Date.now()
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastActivity > STALL_MS) {
+        clearInterval(watchdog)
+        controller.abort()
+        setReconnectNonce((n) => n + 1)
+      }
+    }, WATCHDOG_TICK_MS)
+
     const headers: Record<string, string> =
       seedSeqRef.current > 0 ? { 'last-event-id': String(seedSeqRef.current) } : {}
 
@@ -97,9 +129,11 @@ export function useCallStream(
       openWhenHidden: true,
       // headers: { Authorization: `Bearer ${token}` }, // gắn token khi có auth
       onopen: async () => {
+        lastActivity = Date.now()
         setStatus('open')
       },
       onmessage: (msg) => {
+        lastActivity = Date.now() // BẤT KỲ tin nào (kể cả ping) = kết nối còn sống
         // Bỏ qua heartbeat (event 'ping' giữ kết nối sống) và tin rỗng.
         if (msg.event === 'ping' || !msg.data) return
         let event: CallEvent
@@ -108,9 +142,13 @@ export function useCallStream(
         } catch {
           return // dữ liệu không phải JSON (vd ping) → bỏ qua
         }
+        // Nâng seed để lần reconnect sau chỉ replay phần thật sự còn thiếu.
+        if (event.seq != null && event.seq > seedSeqRef.current) {
+          seedSeqRef.current = event.seq
+        }
         // Upsert theo id: event phát lại với payload mới (vd summary/endcall được BE
         // cập nhật, hoặc replay khi reconnect) sẽ THAY bản cũ thay vì bị bỏ qua →
-        // giao diện cập nhật ngay. `events` memo sort theo seq nên thứ tự vẫn đúng.
+        // giao diện cập nhật ngay. `events` memo sort theo occurredAt nên thứ tự vẫn đúng.
         setStreamed((prev) => {
           const i = prev.findIndex((e) => e.id === event.id)
           if (i === -1) return [...prev, event]
@@ -121,20 +159,21 @@ export function useCallStream(
       },
       onerror: () => {
         setStatus('error')
-        // không throw → thư viện tự reconnect với backoff
+        // không throw → thư viện tự reconnect với backoff (giữ last-event-id nội bộ)
       },
       onclose: () => {
         setStatus('closed')
       },
     }).catch(() => {
-      // bị abort khi unmount -> bỏ qua
+      // bị abort khi unmount / watchdog -> bỏ qua
     })
 
     return () => {
+      clearInterval(watchdog)
       controller.abort()
       setStatus('closed')
     }
-  }, [conversationId])
+  }, [conversationId, reconnectNonce])
 
   // gộp event đã lưu + event nhận qua SSE, dedupe theo id, sắp theo composite order
   const events = useMemo(() => {

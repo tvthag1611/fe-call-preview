@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { useQueryClient } from '@tanstack/react-query'
 import { API_BASE_URL } from '@/lib/api-client'
@@ -9,6 +9,10 @@ const TERMINAL: string[] = [
   CallEventType.CallEnded,
   CallEventType.ConversationEnded,
 ]
+
+/** Quá ngần này (ms) không nhận gì (event lẫn :ping 15s) → coi kết nối câm, mở lại. */
+const STALL_MS = 35_000
+const WATCHDOG_TICK_MS = 5_000
 
 /**
  * Lắng nghe SSE TOÀN CỤC (/realtime/stream) để cập nhật realtime danh sách
@@ -25,6 +29,7 @@ const TERMINAL: string[] = [
  */
 export function useGlobalStream() {
   const qc = useQueryClient()
+  const [reconnectNonce, setReconnectNonce] = useState(0)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -40,10 +45,28 @@ export function useGlobalStream() {
       }
     }
 
+    // Watchdog "kết nối câm" (xem use-call-stream): quá STALL_MS không nhận gì → mở lại.
+    // /realtime/stream KHÔNG có replay nên reconnect xong flush() để đồng bộ lại danh sách,
+    // bù các event đã lỡ trong lúc đứt.
+    let lastActivity = Date.now()
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastActivity > STALL_MS) {
+        clearInterval(watchdog)
+        controller.abort()
+        setReconnectNonce((n) => n + 1)
+      }
+    }, WATCHDOG_TICK_MS)
+
     fetchEventSource(`${API_BASE_URL}/realtime/stream`, {
       signal: controller.signal,
       openWhenHidden: true,
+      onopen: async () => {
+        lastActivity = Date.now()
+        // Nếu đây là lần mở lại (sau khi câm), đồng bộ ngay danh sách để bù event đã lỡ.
+        if (reconnectNonce > 0) flush()
+      },
       onmessage: (msg) => {
+        lastActivity = Date.now() // bất kỳ tin nào (kể cả ping) = còn sống
         if (msg.event === 'ping' || !msg.data) return
         let type: string | undefined
         let conversationId: string | undefined
@@ -85,8 +108,9 @@ export function useGlobalStream() {
     })
 
     return () => {
+      clearInterval(watchdog)
       controller.abort()
       clearTimeout(timer)
     }
-  }, [qc])
+  }, [qc, reconnectNonce])
 }
