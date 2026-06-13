@@ -10,11 +10,11 @@ const TERMINAL: string[] = [
   CallEventType.ConversationEnded,
 ]
 
-/** Quá ngần này (ms) không nhận gì (event lẫn :ping ~5s) → coi kết nối câm, mở lại. */
-const STALL_MS = 12_000
+/** Quá ngần này (ms) không nhận gì (event lẫn :ping ~3s) → coi kết nối câm, mở lại. */
+const STALL_MS = 8_000
 const WATCHDOG_TICK_MS = 3_000
 /** Mạng có lại / quay về tab mà đã im quá ngần này → nối lại NGAY (không chờ STALL_MS). */
-const STALE_GRACE_MS = 7_000
+const STALE_GRACE_MS = 4_000
 
 /**
  * Lắng nghe SSE TOÀN CỤC (/realtime/stream) để cập nhật realtime danh sách

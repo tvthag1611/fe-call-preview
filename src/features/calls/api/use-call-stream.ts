@@ -53,18 +53,18 @@ function dedupeCoordinationResults(events: CallEvent[]): CallEvent[] {
 export type StreamStatus = 'connecting' | 'open' | 'closed' | 'error'
 
 /**
- * Quá ngần này (ms) KHÔNG nhận được gì (event LẪN heartbeat :ping ~5s của BE) thì coi kết
- * nối đã chết âm thầm và chủ động mở lại. ~> 2 nhịp ping để không reconnect oan khi 1 ping
+ * Quá ngần này (ms) KHÔNG nhận được gì (event LẪN heartbeat :ping ~3s của BE) thì coi kết
+ * nối đã chết âm thầm và chủ động mở lại. ~> 2.5 nhịp ping để không reconnect oan khi 1 ping
  * tới trễ. Giảm cùng nhịp ping BE để phát hiện nhanh hơn (xem realtime.service.ts).
  */
-const STALL_MS = 12_000
+const STALL_MS = 8_000
 /** Nhịp kiểm tra "kết nối câm". */
 const WATCHDOG_TICK_MS = 3_000
 /**
  * Khi mạng có lại / quay về tab mà đã im quá ngần này thì nối lại NGAY (không chờ STALL_MS).
  * Đặt ~1 nhịp ping + đệm: im dưới mức này coi như kết nối còn khoẻ, khỏi reconnect oan.
  */
-const STALE_GRACE_MS = 7_000
+const STALE_GRACE_MS = 4_000
 
 /**
  * Subscribe dòng sự kiện realtime (SSE) của một cuộc hội thoại và GỘP với các
@@ -121,7 +121,7 @@ export function useCallStream(
       setReconnectNonce((n) => n + 1)
     }
 
-    // Watchdog phát hiện "kết nối câm": BE bắn heartbeat :ping ~5s, nên ở trạng thái bình
+    // Watchdog phát hiện "kết nối câm": BE bắn heartbeat :ping ~3s, nên ở trạng thái bình
     // thường luôn có tin tới. Nếu quá STALL_MS KHÔNG nhận được gì (event LẪN ping), kết nối
     // coi như đã chết âm thầm (proxy/NAT cắt nhưng không bắn error → thư viện KHÔNG tự
     // reconnect) → mở lại. Đây là lưới chính chống "timeline đứng giữa cuộc gọi".
